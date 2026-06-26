@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2026 The FSEC Developers. All Rights Reserved.
+# Copyright 2026 Stephen Quiton. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,6 +19,11 @@ MP2 singularity subtraction for diamond.
 
 This example runs KMP2 on a 2x2x2 k-point mesh and applies the direct and
 exchange MP2SS corrections to the stored doubles amplitudes.
+
+Method reference:
+    S. J. Quiton, J. D. F. Pottecher, M. Head-Gordon, and L. Lin,
+    arXiv:2605.12727 (2026).
+    https://doi.org/10.48550/arXiv.2605.12727
 """
 
 from pyscf.pbc import df, gto, mp, scf

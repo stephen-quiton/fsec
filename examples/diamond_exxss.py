@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2026 The FSEC Developers. All Rights Reserved.
+# Copyright 2026 Stephen Quiton. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,6 +19,11 @@ Exact-exchange singularity subtraction for diamond.
 
 This example runs PBE0 and HF calculations on a 2x2x2 k-point mesh, then
 applies the contracted-Gaussian and quartic-exponential ExxSS models.
+
+Method reference:
+    S. J. Quiton, J. D. F. Pottecher, X. Xing, M. Head-Gordon, and L. Lin,
+    J. Chem. Theory Comput. 21, 8863–8875 (2025).
+    https://doi.org/10.1021/acs.jctc.5c01066
 """
 
 from pyscf.pbc import df, dft, gto, scf
