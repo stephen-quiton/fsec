@@ -1,21 +1,14 @@
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
-from pathlib import Path
-import sys
-
 import numpy as np
 from pyscf.pbc import df
 from pyscf.pbc import gto as pbcgto
 from pyscf.pbc import mp
 from pyscf.pbc import scf as pbcscf
 
-PACKAGE_PARENT = Path(__file__).resolve().parents[2]
-if str(PACKAGE_PARENT) not in sys.path:
-    sys.path.insert(0, str(PACKAGE_PARENT))
-
-from singularity_subtraction import MP2SS
-from singularity_subtraction.mp2ss import (
+from fsec.singularity_subtraction import MP2SS
+from fsec.singularity_subtraction.mp2ss import (
     MP2DirectFourthOrderSS,
     MP2DirectFullSS,
     MP2DirectSecondOrderSS,

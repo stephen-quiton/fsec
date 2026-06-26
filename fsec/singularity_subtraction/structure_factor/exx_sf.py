@@ -5,7 +5,7 @@ import scipy
 
 from pyscf.pbc.tools import get_monkhorst_pack_size
 
-from singularity_subtraction.grids import ExxSSGrids, minimum_image
+from ..grids import ExxSSGrids, minimum_image
 
 from . import StructureFactor
 from .helpers_sf import build_uKpts

@@ -2,21 +2,21 @@ import unittest
 
 import numpy as np
 
-from singularity_subtraction.function_fitting import (
+from fsec.singularity_subtraction.function_fitting import (
     ExxScipyLeastSquares,
     ExxScipyMinimize,
     MP2ScipyLeastSquares,
     MP2ScipyMinimize,
 )
-from singularity_subtraction.model_function.exx_modfunc import (
+from fsec.singularity_subtraction.model_function.exx_modfunc import (
     ContractedGaussianModel,
     QuarticExponentialModel,
 )
-from singularity_subtraction.model_function.mp2_direct_modfunc import (
+from fsec.singularity_subtraction.model_function.mp2_direct_modfunc import (
     XNGauss,
     XNGaussStackedSingularityQMesh,
 )
-from singularity_subtraction.model_function.mp2_exchange_modfunc import (
+from fsec.singularity_subtraction.model_function.mp2_exchange_modfunc import (
     XNGaussStackedSingularityExchange,
 )
 

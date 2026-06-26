@@ -10,13 +10,13 @@ except ImportError:
     HAS_PYSCF = False
 
 try:
-    from singularity_subtraction.structure_factor.exx_sf import ExxStructureFactor
+    from fsec.singularity_subtraction.structure_factor.exx_sf import ExxStructureFactor
     HAS_EXX_IMPORT = True
 except ImportError:
     HAS_EXX_IMPORT = False
 
 
-@unittest.skipUnless(HAS_PYSCF and HAS_EXX_IMPORT, "PySCF and singularity_subtraction structure_factor deps are required")
+@unittest.skipUnless(HAS_PYSCF and HAS_EXX_IMPORT, "PySCF and fsec structure_factor deps are required")
 class KnownValues(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

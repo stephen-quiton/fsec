@@ -10,13 +10,13 @@ except ImportError:
     HAS_PYSCF = False
 
 try:
-    from singularity_subtraction.structure_factor.mp2_sf import MP2StructureFactor
+    from fsec.singularity_subtraction.structure_factor.mp2_sf import MP2StructureFactor
     HAS_MP2_IMPORT = True
 except ImportError:
     HAS_MP2_IMPORT = False
 
 
-@unittest.skipUnless(HAS_PYSCF and HAS_MP2_IMPORT, "PySCF and singularity_subtraction structure_factor deps are required")
+@unittest.skipUnless(HAS_PYSCF and HAS_MP2_IMPORT, "PySCF and fsec structure_factor deps are required")
 class KnownValues(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

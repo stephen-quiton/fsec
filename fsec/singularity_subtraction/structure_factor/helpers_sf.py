@@ -1,7 +1,7 @@
 import numpy as np
 from pyscf.pbc.tools import get_monkhorst_pack_size
 
-from singularity_subtraction.grids import minimum_image
+from ..grids import minimum_image
 
 
 def build_uKpts(kmf, kpts, mo_coeff_kpts, NsCell=None, rptGrid3D=None, nbands=None):

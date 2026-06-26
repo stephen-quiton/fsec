@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 import time
-from singularity_subtraction.grids import minimum_image, MP2SSGrids
+from ..grids import minimum_image, MP2SSGrids
 from pyscf.pbc.tools import get_monkhorst_pack_size
 import scipy
 from pyscf.pbc.tools.pbc import mesh_to_cutoff, cutoff_to_mesh

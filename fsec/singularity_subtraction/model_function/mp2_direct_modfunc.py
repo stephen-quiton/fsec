@@ -3,7 +3,7 @@ import scipy
 from scipy.integrate import quad
 from scipy.spatial import KDTree
 
-from singularity_subtraction.grids import minimum_image
+from ..grids import minimum_image
 
 from . import ModelFunction
 

@@ -2,13 +2,13 @@ import unittest
 
 import numpy as np
 
-from singularity_subtraction.model_function.exx_modfunc import (
+from fsec.singularity_subtraction.model_function.exx_modfunc import (
     ContractedGaussianModel,
     ExpoLorentzianModel,
     ExponentialModel,
     QuarticExponentialModel,
 )
-from singularity_subtraction.model_function.mp2_direct_modfunc import (
+from fsec.singularity_subtraction.model_function.mp2_direct_modfunc import (
     XNExpAbs,
     XNExpAbs2,
     XNExpAbsStackedSingularity,
@@ -19,7 +19,7 @@ from singularity_subtraction.model_function.mp2_direct_modfunc import (
     XNGaussStackedSingularityQMesh,
     XNQuarticExponential,
 )
-from singularity_subtraction.model_function.mp2_exchange_modfunc import (
+from fsec.singularity_subtraction.model_function.mp2_exchange_modfunc import (
     XNExpAbs2StackedSingularityExchange,
     XNExpAbsStackedSingularityExchange,
     XNExponentialStackedSingularityExchange,

@@ -2,11 +2,11 @@ from dataclasses import dataclass, replace
 from pyscf.pbc.tools import get_monkhorst_pack_size
 import scipy.special
 import time
-import singularity_subtraction.model_function as model_function
-from singularity_subtraction.function_fitting import ExxScipyMinimize, ExxScipyLeastSquares, MP2ScipyMinimize, MP2ScipyLeastSquares
-from singularity_subtraction.structure_factor import MP2StructureFactor
-from singularity_subtraction.structure_factor.helpers_sf import build_uKpts as _build_uKpts
-from singularity_subtraction.grids import MP2SSGrids
+from . import model_function
+from .function_fitting import ExxScipyMinimize, ExxScipyLeastSquares, MP2ScipyMinimize, MP2ScipyLeastSquares
+from .structure_factor import MP2StructureFactor
+from .structure_factor.helpers_sf import build_uKpts as _build_uKpts
+from .grids import MP2SSGrids
 from . import SingularitySubtraction
 from pyscf.pbc import df
 from pyscf import lib
