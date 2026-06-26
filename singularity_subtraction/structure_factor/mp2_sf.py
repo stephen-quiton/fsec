@@ -1,0 +1,744 @@
+from abc import ABC, abstractmethod
+import time
+from singularity_subtraction.grids import minimum_image, MP2SSGrids
+from pyscf.pbc.tools import get_monkhorst_pack_size
+import scipy
+from pyscf.pbc.tools.pbc import mesh_to_cutoff, cutoff_to_mesh
+from pyscf.lib import logger
+from pyscf import lib
+from pyscf.lib.parameters import LARGE_DENOM
+from pyscf.pbc import df
+from pyscf.lib import logger, einsum
+from pyscf.pbc.mp import kmp2
+import numpy as np
+from scipy.spatial import KDTree
+from pyscf.lib.numpy_helper import einsum as pyscf_einsum
+
+
+
+
+from . import StructureFactor
+from .helpers_sf import build_uKpts
+
+class MP2StructureFactor(StructureFactor):
+    def __init__(self, kmf, kmp, t2=None, N_local=None, sq_ke_cutoff=None, qG_cutoff=None, relative_shift=0.0, **kwargs):
+        """
+        Initialize the structure factor with mean-field object (mf), density matrix (dm), cell, and optional parameters.
+        """
+        self.kmf = kmf
+        self.kmp = kmp
+        self.t2 = t2
+        self.kGrid1 = minimum_image(kmf.cell, kwargs.get('kGrid1', kmf.kpts))
+        self.kGrid2 = kwargs.get('kGrid2', None)
+        self.min_points = kwargs.get('min_points', 6)
+
+        self.t2_store_type = kwargs.get('t2_store_type', 'kikjka') # 'kikjka' or 'kikj'
+        super().__init__(self.kmf.cell, N_local, sq_ke_cutoff, qG_cutoff, **kwargs)
+        
+    @staticmethod
+    def surviving_mo_energy(mmp):
+        """Return mo_energy with frozen orbitals removed, per k-point.
+
+        Returns
+        -------
+        list of np.ndarray
+            One array per k-point. Lengths can differ between k-points if you
+            used a per-k-point `frozen` list.
+        """
+        from pyscf.pbc.mp.kmp2 import get_frozen_mask
+
+        moidx = get_frozen_mask(mmp)
+        return [e[mask] for e, mask in zip(mmp.mo_energy, moidx)]
+    
+
+    def set_grids(self,min_fit_points=6):
+        self.min_points = min_fit_points
+        self.grids = MP2SSGrids(self.kmf.cell,
+                                self.kGrid1,
+                                self.N_local,
+                                qG_norm_cutoff=self.qG_cutoff,
+                                min_points=self.min_points)
+        self.grids.build_grids()
+        self.grids.build_truncated_qG_grid()
+
+    def build_structure_factor(self,direct=False,exchange=False,qG_full=None,
+                               update_class=True, qG_cutoff=None, dG0=False,
+                               grids=None, mo_coeff_kpts1=None, mo_coeff_kpts2=None, mo_coeff_kpts3=None, 
+                               kmf=None, t2=None, mo_energy=None, mo_e_o=None, mo_e_v=None, mo_e_v_b=None,
+                               t2_store_type=None, Lov=None, Lov_b=None, kmp=None):
+        """
+        Build the MP2 structure factor, either direct term, exchange term, or both.
+
+        Parameters
+        ----------
+        direct : bool
+            Whether to compute the direct term of the structure factor.
+        exchange : bool
+            Whether to compute the exchange term of the structure factor.
+        qG_full : np.ndarray, optional
+            The (N, 3) array of q+G points where the structure factor is evaluated.
+            If None, uses the grids.qG_grid_local constructed from the class grid setup.
+        update_class : bool
+            If True, update the class instance attributes with computed structure factor arrays.
+        qG_cutoff : float, optional
+            Maximum norm of q+G to include in the computed structure factor.
+        dG0 : bool, optional
+            Whether to compute the DeltaG=0 term of the unfolded structure factor.
+        grids : MP2SSGrids, optional
+            The grids object to use for the structure factor calculation.
+            If None, uses the grids constructed from the class grid setup.
+        Returns
+        -------
+        SqG_full_direct : np.ndarray
+            The direct term of the structure factor.
+        SqG_full_exchange : np.ndarray
+            The exchange term of the structure factor.
+        qG_full : np.ndarray
+            The (N, 3) array of q+G points where the structure factor is evaluated.
+
+        Notes
+        -----
+        - The structure factor S(qG) is computed for all relevant q+G points.
+        - Builds the structure factor for either or both of the direct and exchange MP2 terms.
+        - May use pre-provided t2 amplitudes if available or compute them on-the-fly.
+        """
+        
+        if kmf is None:
+            kmf = self.kmf
+        if kmp is None:
+            kmp = self.kmp
+        
+        if not direct and not exchange and not dG0:
+            raise ValueError("Either direct or exchange or dG0 must be requested")
+        
+        build_SqG_start_time = time.time()
+
+        mo_coeff_padded, mo_energy_padded = kmp2._add_padding(
+            kmp, kmp.mo_coeff, kmp.mo_energy)
+
+        if grids is None:
+            self.set_grids(min_fit_points=self.min_points)
+            grids = self.grids
+
+        if qG_full is None:
+            qG_full = grids.qG_grid_local
+        
+        if qG_cutoff is None:
+            qG_cutoff = self.qG_cutoff
+        
+        if mo_coeff_kpts1 is None:
+            mo_coeff_kpts1 = mo_coeff_padded
+        
+        if mo_coeff_kpts2 is None:
+            mo_coeff_kpts2 = mo_coeff_padded
+
+        if mo_coeff_kpts3 is None:
+            mo_coeff_kpts3 = mo_coeff_padded
+        
+        if t2_store_type is None:
+            t2_store_type = self.t2_store_type
+        
+        kGrid1 = grids.kGrid1 # occupied
+        kGrid2 = grids.kGrid2 # virtual
+        kGrid3 = grids.kGrid3 # virtual b
+        rptGrid3D = grids.RptGrid3D_coarse
+        qGrid = grids.qGrid
+
+        # Set up constants
+        # NsCell = np.array(kmf.cell.mesh)
+        NsCell = np.array(self.N_local)
+        nks = get_monkhorst_pack_size(kmf.cell, kmf.kpts)
+        nkpts = np.prod(nks)
+        
+        t2_required = True # if full t2 in kikjka format is needed
+        t2_given = t2 is not None
+        
+        with_df_ints = self.kmp.with_df_ints and isinstance(self.kmp._scf.with_df, df.GDF)
+        if not direct and not exchange:
+            # Only dG0 term. No need to compute t2.
+            print("Only dG0 term. No need to compute or use t2.")
+            t2_required = False
+        elif not t2_given:
+            if t2_store_type == 'kikjka':
+                # NOTE: t2 MUST be in the kikjq format
+                if self.t2 is None:
+                    time_start = time.time()
+                    t2 = self.compute_t2_amplitudes(self.kmp, self.kmp.mo_energy, self.kmp.mo_coeff) # nkpts, nkpts, nkpts, nocc, nocc, nvir, nvir
+                    time_end = time.time()
+                    print(f"Time to compute t2: {time_end - time_start} s")
+                else:
+                    t2 = self.t2
+
+            else:
+                if with_df_ints:
+                    Lov = kmp2._init_mp_df_eris(kmp) if Lov is None else Lov
+                    if grids.kGrid3_neq_kGrid2 and Lov_b is None:
+                        raise NotImplementedError("Lov_b is not implemented for kGrid3_neq_kGrid2")
+                    elif Lov_b is None:
+                        Lov_b = Lov.copy()
+                print("Computing t2 on the fly for each q+G point.")
+                t2_required = False # we compute t2 on the fly for each q+G point.
+                
+        else:
+            print("Using provided t2, assuming kikjq format")
+                
+        # periodic parts, uKpts_i, uKpts_j, uKpts_a, uKpts_b
+        # nocc = kmf.cell.tot_electrons() // 2
+        nocc = self.kmp.nocc
+        # nbands = kmf.cell.nao_nr()
+        nbands = self.kmp.nmo
+        fao2mo = self.kmp._scf.with_df.ao2mo
+        nvir = nbands - nocc
+        time_start = time.time()
+        
+        kgrids_equal = kGrid1 is kGrid2 or np.allclose(kGrid1, kGrid2, atol=1e-8)
+        mo_coeffs_equal = mo_coeff_kpts1 is mo_coeff_kpts2 or np.allclose(mo_coeff_kpts1, mo_coeff_kpts2, atol=1e-8)
+        if kgrids_equal and mo_coeffs_equal:
+            uKpts_i = build_uKpts(kmf, kGrid1, mo_coeff_kpts1, rptGrid3D=rptGrid3D, nbands=nbands)
+            uKpts_j = uKpts_i
+            uKpts_a = uKpts_i
+            uKpts_b = uKpts_i
+        else:
+            uKpts_i = build_uKpts(kmf, kGrid1, mo_coeff_kpts1, rptGrid3D=rptGrid3D, nbands=nbands)
+            uKpts_j = build_uKpts(kmf, kGrid1, mo_coeff_kpts1, rptGrid3D=rptGrid3D, nbands=nbands)
+            uKpts_a = build_uKpts(kmf, kGrid2, mo_coeff_kpts2, rptGrid3D=rptGrid3D, nbands=nbands)
+            uKpts_b = build_uKpts(kmf, kGrid3, mo_coeff_kpts3, rptGrid3D=rptGrid3D, nbands=nbands) # SJQ checked
+        time_end = time.time()
+        print(f"Time to build uKpts: {time_end - time_start} s")
+        
+        uKpts_i = uKpts_i[:,:nocc,:]
+        uKpts_j = uKpts_j[:,:nocc,:]
+        uKpts_a = uKpts_a[:,nocc:,:]
+        uKpts_b = uKpts_b[:,nocc:,:]
+        conj_uKpts_i = np.conj(uKpts_i)
+        uKpts_j_T = uKpts_j.transpose(0,2,1)
+
+        if mo_energy is None:
+            mo_energy = mo_energy_padded
+        mo_energy = np.asarray(mo_energy)
+        mo_e_o = mo_energy[:, :nocc] if mo_e_o is None else np.asarray(mo_e_o)
+        mo_e_v = mo_energy[:, nocc:] if mo_e_v is None else np.asarray(mo_e_v)
+        mo_e_v_b = mo_e_v.copy() if mo_e_v_b is None else np.asarray(mo_e_v_b)
+        
+        Lvec_real = kmf.cell.lattice_vectors()
+        L_delta = Lvec_real / NsCell[:, None]
+        omega_cell = np.abs(np.linalg.det(Lvec_real))
+        dvol = np.abs(np.linalg.det(L_delta))
+        # SqG = pymp.shared.array((nkpts, nG), dtype=np.float64)
+        nqG = qG_full.shape[0]
+        nG = np.prod(NsCell)
+        print("MP2StructureFactorTruncated nG: ", nG)
+        print("MP2StructureFactorTruncated nqG: ", nqG)
+        SqG_full_direct = np.zeros(nqG, dtype=np.float64)
+        SqG_full_exchange = np.zeros(nqG, dtype=np.float64)
+        print("SqG direct MEM USAGE (KB) IS: {:.3f}".format(SqG_full_direct.nbytes / (1024)))
+        print("SqG exchange MEM USAGE (KB) IS: {:.3f}".format(SqG_full_exchange.nbytes / (1024)))
+
+        matmul_time = 0
+        u1u2_time = 0
+        locate_k2_time = 0
+        kgrid2_tree = KDTree(kGrid2)
+        kgrid3_tree = KDTree(kGrid3)
+        num_equiv_qG = 0
+        total_einsum_time = 0
+        precompute_total_time = 0      
+        np_dot_time = 0 
+        t2_time = 0
+        
+        precompute_total_time += time.time() - build_SqG_start_time
+
+            
+        precompute_start_time = time.time()
+        qG_full = qG_full[np.linalg.norm(qG_full, axis=1) < qG_cutoff + 1e-8,:]
+        SqG_full_direct = np.zeros(qG_full.shape[0], dtype=np.float64)
+        SqG_full_exchange = np.zeros(qG_full.shape[0], dtype=np.float64)
+        SqG_full_dG0 = np.zeros(qG_full.shape[0], dtype=np.float64)
+        if t2_required and t2_store_type == 'kikjka':
+            # Convert ki,kj,q -> qi,ki,kj
+            t2 = t2.transpose(2, 0, 1, 3, 4, 5, 6)
+        # t2_test = np.zeros_like(t2)
+        
+        # Map all qG points to the first Brillouin zone
+        qG_full_BZ = minimum_image(kmf.cell, qG_full)
+        
+        qtree = scipy.spatial.KDTree(grids.qGrid)
+        
+        # Find indices of qG_full_BZ in the qGrid
+        _, qi_map = qtree.query(qG_full_BZ, distance_upper_bound=1e-8)
+        if np.any(qi_map == len(qGrid)):
+            raise TypeError("Cannot locate qG_full_BZ in the qmesh.")
+    
+        kptas = kGrid1[None,:,:] + qGrid[:,None,:]
+        kptbs = kGrid1[None,:,:] - qGrid[:,None,:]
+        kptas_BZ = minimum_image(kmf.cell, kptas.reshape(-1,3))
+        kptbs_BZ = minimum_image(kmf.cell, kptbs.reshape(-1,3))
+        _, kas = kgrid2_tree.query(kptas_BZ, distance_upper_bound=1e-8)
+        _, kbs = kgrid3_tree.query(kptbs_BZ, distance_upper_bound=1e-8)
+        
+        kas = kas.reshape(nkpts,nkpts) # qi, ki -> kas
+        kbs = kbs.reshape(nkpts,nkpts) # qi, kj -> kbs
+
+        # Precomoute the qpis
+        qpis_full = None
+        eijab_full = None
+        if t2_store_type == 'kikjka':
+            # precompute qp and eijab for all q, ki, kj.
+            # Results in qpis_full and eijab_full which are both O(Nk^3)
+            
+            if exchange:
+                qp_pts = np.zeros((nkpts,nkpts,nkpts,3), dtype=np.float64)
+                qp_pts[:,:,:,:] =  - kGrid1[:,  None, None, :] + kGrid1[None, :, None, :] - qGrid[None, None, :, :] # q' = -ki + kj + q
+                qp_pts = minimum_image(kmf.cell, qp_pts.reshape(-1,3))
+                _, qpis_full = qtree.query(qp_pts, distance_upper_bound=1e-8)
+                if np.any(qpis_full == len(qGrid)):
+                    raise TypeError("Cannot locate qpi in the qmesh.")
+                qpis_full = qpis_full.reshape(nkpts,nkpts,nkpts)
+                qpis_full = qpis_full.transpose(2,0,1) # q', ki, kj
+            
+            # Compute Delta E matrix for q, ki, kj.
+            eijab_full = np.zeros((nkpts,nkpts,nkpts,nocc,nocc,nvir,nvir), dtype=mo_energy[0][0].dtype)
+            
+            for qi in range(nkpts):
+                ka_at_qi = kas[qi]
+                kb_at_qi = kbs[qi]
+                eijab = mo_e_o[:,None,:,None,None,None] + mo_e_o[None,:,None,:,None,None] \
+                    -mo_e_v[ka_at_qi,None,None,None,:,None] - mo_e_v_b[None,kb_at_qi,None,None,None,:]
+                eijab_full[qi,:,:,:,:,:,:] = 1/(eijab)
+                
+        contract_expression_rijab = 'mia,nbj->mnijab'
+        precompute_total_time += time.time()-precompute_start_time
+            
+        nqG_full = qG_full.shape[0]
+        interval = nqG_full // 10
+        interval = max(interval, 1)
+        inversion_partner = None
+        if self.sq_inversion_symm:
+            qg_tree = scipy.spatial.KDTree(qG_full)
+            _, inversion_partner = qg_tree.query(-qG_full, distance_upper_bound=1e-8)
+
+        for qG in range(qG_full.shape[0]):
+            if qG % interval == 0:
+                print(f"Progress: {qG/nqG_full*100:.2f}%")
+                print(f"Time: {time.time()-time_start:.2f}s")
+                
+            # First, see if S(-qG) has already been computed
+            # precompute all idx_kpta and idx_kptb for all kpts
+            qGpt = qG_full[qG, :]
+            precompute_start_time = time.time()
+            if self.sq_inversion_symm and qG > 1:
+                equiv_qG_index = inversion_partner[qG]
+                if equiv_qG_index < qG:
+                    num_equiv_qG += 1
+                    if direct:
+                        SqG_full_direct[qG] = SqG_full_direct[equiv_qG_index]
+                    if exchange:
+                        SqG_full_exchange[qG] = SqG_full_exchange[equiv_qG_index]
+                    if dG0:
+                        SqG_full_dG0[qG] = SqG_full_dG0[equiv_qG_index]
+                    precompute_total_time += time.time()-precompute_start_time
+                    continue
+                
+
+            
+
+            # Find qi index
+            qi = qi_map[qG]
+            qpt = qGrid[qi]
+            if exchange and t2_store_type == 'kikjka':
+                qpis = qpis_full[qi] # nkpts x nkpts.
+
+            t2_qi = None
+            if t2_required and t2_store_type == 'kikjka':  
+                t2_qi = t2[qi]
+            
+
+            kptas = kGrid1 + qGpt
+            kptbs = kGrid1 - qGpt
+            kptas_BZ = minimum_image(kmf.cell, kptas)
+            kptbs_BZ = minimum_image(kmf.cell, kptbs)
+            
+            kGdiffas = kptas - kptas_BZ
+            kGdiffbs = kptbs - kptbs_BZ
+            
+            kas_at_qi = kas[qi]
+            kbs_at_qi = kbs[qi]
+            
+            # Precompute exp_term for kGdiffas and kGdiffbs
+            exp_term_as = np.exp(-1j * (rptGrid3D @ kGdiffas.T)).T
+            exp_term_bs = np.exp(1j * (rptGrid3D @ kGdiffbs.T)).T
+            
+            precompute_time = time.time()
+            precompute_total_time += precompute_time-precompute_start_time
+            
+            # Build pair densities, rho_ikiaka and rho_jkjbkb
+            u1u2_reset = time.time()
+            ua_ki = uKpts_a[kas_at_qi] * exp_term_as[:,None,:] # nkpts x nvir x nG
+            u1u2_time += time.time()-u1u2_reset
+            matmul_reset = time.time()
+            rho_ia_full = conj_uKpts_i @ ua_ki.transpose(0,2,1) # nkpts x nocc x nvir
+            matmul_time += time.time()-matmul_reset
+                
+            u1u2_reset = time.time()
+            conj_ub_kj = np.conj(uKpts_b[kbs_at_qi]) * exp_term_bs[:,None,:] # nkpts x nvir x nG
+            u1u2_time += time.time()-u1u2_reset
+            matmul_reset = time.time()
+            rho_jb_full = conj_ub_kj @ uKpts_j_T # nkpts x nvir x nocc
+            matmul_time += time.time()-matmul_reset
+        
+
+            if t2_store_type == 'ki' and not t2_given:
+                # O(Nk) memory scaling pathway
+                oovv_ij = None
+                oovv_ji = None
+                if exchange:
+                    oovv_ji = np.zeros((nkpts,nocc,nocc,nvir,nvir), dtype=mo_coeff_kpts1[0].dtype)
+                if direct:
+                    oovv_ij = np.zeros((nkpts,nocc,nocc,nvir,nvir), dtype=mo_coeff_kpts1[0].dtype)
+
+                for ki in range(nkpts):
+                    # Build ERIs with DF integrals
+                    ka = kas_at_qi[ki]
+                    for kj in range(nkpts):
+                        kb = kbs_at_qi[kj]
+                        if with_df_ints:
+                            assert Lov.ndim == Lov_b.ndim, "Lov and Lov_b must have the same number of dimensions"
+                            
+                            if Lov.ndim == 4:
+                                Lov_linear_scaling = True
+                            elif Lov.ndim == 2: # HACK: should in principle be a 5D array.
+                                Lov_linear_scaling = False
+                            else: 
+                                raise ValueError("Lov must be a 3D or 4D array")
+
+                            if direct:
+                                Lov_kika = None
+                                Lov_kjkb = None
+                                if Lov_linear_scaling:
+                                    Lov_kika = Lov[ki]
+                                    Lov_kjkb = Lov_b[kj]
+                                else:
+                                    Lov_kika = Lov[ki, ka]
+                                    Lov_kjkb = Lov_b[kj, kb]
+                                
+                                oovv_ij[kj] = (1./nkpts) * lib.einsum(
+                                    "Lia,Ljb->iajb",
+                                    Lov_kika, Lov_kjkb
+                                ).transpose(0,2,1,3)
+
+                            if exchange:
+                                oovv_ji[kj] = (1./nkpts) * lib.einsum(
+                                    "Lia,Ljb->iajb",
+                                    Lov_b[ki, kb], Lov[kj, ka]
+                                ).transpose(0,2,1,3)
+                                
+                        else:
+                            orbo_i = mo_coeff_kpts1[ki][:,:nocc]
+                            orbo_j = mo_coeff_kpts1[kj][:,:nocc]
+                            orbv_a = mo_coeff_kpts2[ka][:,nocc:]
+                            orbv_b = mo_coeff_kpts3[kb][:,nocc:]
+                            if direct:
+                                oovv_ij[kj] = fao2mo(
+                                    (orbo_i,orbv_a,orbo_j,orbv_b),
+                                    (kGrid1[ki],kGrid2[ka],kGrid1[kj],kGrid3[kb]),
+                                    compact=False
+                                ).reshape(nocc,nvir,nocc,nvir).transpose(0,2,1,3) / nkpts
+                            if exchange:
+                                oovv_ji[kj] = fao2mo(
+                                    (orbo_i,orbv_b,orbo_j,orbv_a),
+                                    (kGrid1[ki],kGrid3[kb],kGrid1[kj],kGrid2[ka]),
+                                    compact=False
+                                ).reshape(nocc,nvir,nocc,nvir).transpose(0,2,1,3) / nkpts              
+                    # Build eijab for direct
+
+
+                    # Compute structure factor contribution
+                    
+                    rijab_ki = np.einsum('ia,nbj->nijab', rho_ia_full[ki], rho_jb_full.conj()) * dvol**2 / (nkpts * omega_cell)
+                    if direct or dG0:
+                        eijab_ki = mo_e_o[ki,None,:,None,None,None] + mo_e_o[:,None,:,None,None] \
+                            -mo_e_v[ka,None,None,None,:,None] - mo_e_v_b[kbs_at_qi,None,None,None,:]
+
+                    if direct:  
+                        t2_ki = np.conj(oovv_ij / eijab_ki) # kj, i, j, a, b
+                        np_dot_reset = time.time()
+                        temp_SqG_k = 2 * pyscf_einsum('nijab,nijab->', rijab_ki, t2_ki) 
+                        SqG_full_direct[qG] += temp_SqG_k.real / nkpts
+                        np_dot_time += time.time()-np_dot_reset
+                    if exchange:
+                        eijba_ki = mo_e_o[ki,None,:,None,None,None] + mo_e_o[:,None,:,None,None] \
+                            -mo_e_v_b[kbs_at_qi,None,None,:,None] - mo_e_v[ka,None,None,None,None,:]
+                        t2_ki_x = np.conj(oovv_ji / eijba_ki) # kj, i, j, a, b
+                        np_dot_reset = time.time()
+                        temp_SqG_k = - pyscf_einsum('nijab,nijba->', rijab_ki, t2_ki_x) 
+                        SqG_full_exchange[qG] += temp_SqG_k.real / nkpts
+                        np_dot_time += time.time()-np_dot_reset
+                    if dG0:
+                        np_dot_reset = time.time()
+                        temp_SqG_k =  2 * np.sum(np.abs(rijab_ki)**2 / eijab_ki)
+                        SqG_full_dG0[qG] += temp_SqG_k.real / nkpts
+                        np_dot_time += time.time()-np_dot_reset
+
+                oovv_ij = None
+                oovv_ji = None
+                eijab_ki = None
+
+            else:
+                # O(Nk^2) or O(Nk^3) memory scaling pathway
+                einsum_time = time.time()
+                rijab = np.einsum(contract_expression_rijab,rho_ia_full,rho_jb_full.conj(),optimize=True)
+                rijab = rijab.ravel()
+                total_einsum_time += time.time()-einsum_time
+                
+                if direct:
+
+                    if t2_store_type == 'kikj' and not t2_given:
+                        t2_start_time = time.time()
+                        t2_qi = self.compute_t2_amplitudes(self.kmp, self.kmp.mo_energy, self.kmp.mo_coeff, qGrid, qGrid_sample=qpt.reshape(1,3),
+                                                            skip_if_no_qpt=True, mode='direct',Lov=Lov, verbose=logger.NOTE)
+                        t2_qi = t2_qi.transpose(2,0,1,3,4,5,6)
+                        t2_qi = t2_qi[0]
+                        t2_time += time.time()-t2_start_time
+                    np_dot_reset = time.time()
+                    temp_SqG_k =2/(omega_cell*nkpts) * np.dot(rijab, t2_qi.ravel()) * dvol**2 #ORIGINAL 3/3/26
+                    # temp_SqG_k =2/(omega_cell*nkpts) * pyscf_einsum('i,i->', rijab, t2_qi.ravel()) * dvol**2 #NEW 3/3/26
+                    
+                    SqG_full_direct[qG] += temp_SqG_k.real / nkpts
+                    np_dot_time += time.time()-np_dot_reset
+                if exchange:
+                    t2_qpi = np.zeros((nkpts,nkpts,nocc,nvir,nocc,nvir), dtype=np.complex128)
+                    if t2_store_type == 'kikj' and not t2_given:
+                        t2_start_time = time.time()
+                        t2_qpi = self.compute_t2_amplitudes(self.kmp, self.kmp.mo_energy, self.kmp.mo_coeff, qGrid, qGrid_sample=qpt.reshape(1,3),
+                                                            skip_if_no_qpt=True, mode='exchange',Lov=Lov, verbose=logger.NOTE)
+                        t2_qpi = t2_qpi.transpose(2,0,1,3,4,5,6) # qpi, ki, kj, i, j, a, b
+                        t2_qpi = t2_qpi[0]
+                        t2_time += time.time()-t2_start_time
+                    else:
+                        kii, kjj = np.indices((nkpts, nkpts))
+                        t2_qpi = t2[qpis, kii, kjj]
+                    
+                    np_dot_reset = time.time()
+
+                    t2_qpi = t2_qpi.transpose(0,1,2,3,5,4).ravel()
+                    temp_SqG_k_x = -1/(omega_cell*nkpts) * np.dot(rijab, t2_qpi) * dvol**2 #ORIGINAL 3/3/26
+                    # temp_SqG_k_x = -1/(omega_cell*nkpts) * pyscf_einsum('i,i->', rijab, t2_qpi) * dvol**2 #NEW 3/3/26
+                    
+                    SqG_full_exchange[qG] += temp_SqG_k_x.real / nkpts
+                    np_dot_time += time.time()-np_dot_reset
+                
+                if dG0:
+                    if t2_store_type == 'kikj':
+                        ka_at_qi = kas[qi]
+                        kb_at_qi = kbs[qi]
+                        eijab = mo_e_o[:,None,:,None,None,None] + mo_e_o[None,:,None,:,None,None] \
+                            -mo_e_v[ka_at_qi,None,None,None,:,None] - mo_e_v_b[None,kb_at_qi,None,None,None,:]
+                        eijab = 1/(eijab)
+                    else:
+                        eijab = eijab_full[qi]
+
+                    np_dot_reset = time.time()
+                    # rijab_ovr_e =  np.einsum(contract_expression_dG0,rho_ia_full,rho_jb_full.conj(),np.sqrt(np.abs(eijab)),optimize=True
+                    rijab_ovr_e = rijab * np.sqrt(np.abs(eijab)).ravel()
+
+                    rijab_ovr_e = rijab_ovr_e * dvol**2 / (nkpts * omega_cell) # For using rijab instead of t2
+                    
+                    # temp_SqG_k_dG0 = -2 * np.sum(np.abs(rijab_ovr_e)**2) # Check prefactor here
+                    # temp_SqG_k_dG0 = -2 * np.dot(rijab_ovr_e, rijab_ovr_e.conj()) #ORIGINAL 3/3/26
+                    temp_SqG_k_dG0 = -2 * pyscf_einsum('i,i->', rijab_ovr_e, rijab_ovr_e.conj()) #NEW 3/3/26
+                    SqG_full_dG0[qG] += temp_SqG_k_dG0.real / nkpts
+                    np_dot_time += time.time()-np_dot_reset
+
+
+
+
+        build_SqG_end_time = time.time()
+        SqG_time = build_SqG_end_time - build_SqG_start_time
+        print(f"Time to build SqG: {SqG_time} s")
+        print("    Time to compute rho12: ", u1u2_time)
+        print("    Time to compute matmul: ", matmul_time)
+        print("    Time to locate k2: ", locate_k2_time)
+        print("    Time to compute einsum: ", total_einsum_time)
+        print("    Time to compute np.dot: ", np_dot_time)
+        print("    Time to precompute: ", precompute_total_time)
+        print("    Time to compute t2 on the fly: ", t2_time)
+        print("Number of equivalent qG points: ", num_equiv_qG)
+        if update_class:
+            self.SqG_full_direct = SqG_full_direct
+            self.SqG_full_exchange = SqG_full_exchange
+            self.SqG_full_dG0 = SqG_full_dG0
+            self.qG_full = qG_full
+                
+        # Find zero index
+        norms = np.linalg.norm(qG_full, axis=1)
+        zero_idx = np.where(norms < 1e-8)[0]
+        if len(zero_idx) > 0:
+            print("MP2StructureFactorTruncated: S_direct(0) = ",SqG_full_direct[zero_idx])
+            print("MP2StructureFactorTruncated: S_exchange(0) = ",SqG_full_exchange[zero_idx])
+            print("MP2StructureFactorTruncated: S_dG0(0) = ",SqG_full_dG0[zero_idx])
+
+
+        result_dict = {
+            'SqG_full_direct': SqG_full_direct,
+            'SqG_full_exchange': SqG_full_exchange,
+            'SqG_full_dG0': SqG_full_dG0,
+            'qG_full': qG_full,
+        }
+        return result_dict
+                
+            
+    
+
+    def compute_t2_amplitudes(self, kmp, mo_energy, mo_coeff, qGrid, qGrid_sample=None, skip_if_no_qpt=False, mode='direct',Lov=None, verbose=logger.DEBUG):
+        
+        """Computes k-point RMP2 energy. Ripped off from KMP2.kernel(). lol.
+
+        Args:
+            mp (KMP2): an instance of KMP2
+            mo_energy (list): a list of numpy.ndarray. Each array contains MO energies of
+                            shape (Nmo,) for one kpt. If frozen orbitals or per-k ragged
+                            shapes are present, they are canonicalized via
+                            kmp2._add_padding so the body of this function can safely
+                            use kmp.nocc / kmp.nmo and kmp2.padding_k_idx.
+            mo_coeff (list): a list of numpy.ndarray. Each array contains MO coefficients
+                            of shape (Nao, Nmo) for one kpt. Padded analogously.
+            verbose (int, optional): level of verbosity. Defaults to logger.NOTE (=3).
+            with_t2 (bool, optional): whether to compute t2 amplitudes. Defaults to WITH_T2 (=True).
+            mode (str, optional): 'direct' means ka = ki + q. 'exchange' means ka = kj - q. Default is 'direct' 
+            
+
+        Returns:
+            KMP2 energy and t2 amplitudes (=None if with_t2 is False)
+        """
+        if mode not in ['direct', 'exchange']:
+            raise ValueError(f"Mode {mode} not recognized. Must be 'direct' or 'exchange'.")
+        cput0 = (logger.process_clock(), logger.perf_counter())
+        log = logger.new_logger(kmp, verbose)
+
+        kmp.dump_flags()
+        cell = kmp._scf.cell
+        mo_coeff, mo_energy = kmp2._add_padding(kmp, mo_coeff, mo_energy)
+        nmo = kmp.nmo
+        nocc = kmp.nocc
+        nvir = nmo - nocc
+        nkpts = kmp.nkpts
+        # qGrid = kmp.kpts if qGrid is None else qGrid
+        nka = np.array(qGrid_sample.shape[0]) if qGrid_sample is not None else nkpts
+
+
+        with_df_ints = kmp.with_df_ints and isinstance(kmp._scf.with_df, df.GDF)
+
+        mem_avail = kmp.max_memory - lib.current_memory()[0]
+        mem_usage = (nkpts * (nocc * nvir)**2) * 16 / 1e6
+        if with_df_ints:
+            mydf = kmp._scf.with_df
+            if mydf.auxcell is None:
+                # Calculate naux based on precomputed GDF integrals
+                naux = mydf.get_naoaux()
+            else:
+                naux = mydf.auxcell.nao_nr()
+
+            mem_usage += (nkpts**2 * naux * nocc * nvir) * 16 / 1e6
+        mem_usage += (nkpts**2 * nka * (nocc * nvir)**2) * 16 / 1e6
+        if mem_usage > mem_avail:
+            raise MemoryError('Insufficient memory! MP2 memory usage %d MB (currently available %d MB)'
+                            % (mem_usage, mem_avail))
+
+        eia = np.zeros((nocc,nvir))
+        eijab = np.zeros((nocc,nocc,nvir,nvir))
+
+        fao2mo = kmp._scf.with_df.ao2mo
+        kconserv = kmp.khelper.kconserv
+        oovv_ij = np.zeros((nkpts,nocc,nocc,nvir,nvir), dtype=mo_coeff[0].dtype)
+
+        mo_e_o = [mo_energy[k][:nocc] for k in range(nkpts)]
+        mo_e_v = [mo_energy[k][nocc:] for k in range(nkpts)]
+
+        # Get location of non-zero/padded elements in occupied and virtual space
+        nonzero_opadding, nonzero_vpadding = kmp2.padding_k_idx(kmp, kind="split")
+
+        if qGrid_sample is not None:
+            nka = np.array(qGrid_sample.shape[0]) if qGrid_sample is not None else nkpts
+            skip_if_no_qpt = True
+
+
+        t2 = np.zeros((nkpts, nkpts, nka, nocc, nocc, nvir, nvir), dtype=complex)
+        # Build 3-index DF tensor Lov
+        if with_df_ints and Lov is None:
+            Lov = kmp2._init_mp_df_eris(kmp)
+
+ 
+        q_tree = scipy.spatial.KDTree(qGrid)
+        num_skipped_qpts_oovv = 0
+        num_skipped_qpts_t2 = 0
+
+        
+        qpts = kmp.kpts[:,None,:] - kmp.kpts[None,:,:]
+        qpts = minimum_image(cell, qpts.reshape(-1,3))
+        _, qi_map = q_tree.query(qpts, distance_upper_bound=1e-8)
+        qi_map = qi_map.reshape(nkpts,nkpts)
+
+
+        # Find qpt
+        if qGrid_sample is not None:
+            qGrid_sample = minimum_image(cell, qGrid_sample.reshape(-1,3))
+            qsample_tree = scipy.spatial.KDTree(qGrid_sample)
+            _, qi_map_sample = qsample_tree.query(qpts, distance_upper_bound=1e-8)
+            qi_map_sample = qi_map_sample.reshape(nkpts,nkpts)
+        
+        for ki in range(nkpts):
+            for kj in range(nkpts):
+                # kref = ki if mode == 'direct' else kj
+                for ka in range(nkpts):
+                    if qi_map_sample[ka,ki] == len(qGrid_sample):
+                        num_skipped_qpts_oovv += 1
+                        if skip_if_no_qpt:
+                            continue
+                        else:
+                            raise ValueError(f"Cannot locate qpt for (k+q) in the qmesh.")
+                    
+                    kb = kconserv[ki,ka,kj]
+                    # (ia|jb)
+                    kvirt = ka if mode == 'direct' else kb
+                    kvirt2 = kb if mode == 'direct' else ka
+                    if with_df_ints:
+                        oovv_ij[kvirt] = (1./nkpts) * einsum("Lia,Ljb->iajb", Lov[ki, kvirt], Lov[kj, kvirt2]).transpose(0,2,1,3)
+                    else:
+                        orbo_i = mo_coeff[ki][:,:nocc]
+                        orbo_j = mo_coeff[kj][:,:nocc]
+                        orbv_a = mo_coeff[ka][:,nocc:]
+                        orbv_b = mo_coeff[kb][:,nocc:]
+                        oovv_ij[kvirt] = fao2mo((orbo_i,orbv_a,orbo_j,orbv_b),
+                                            (kmp.kpts[ki],kmp.kpts[kvirt],kmp.kpts[kj],kmp.kpts[kvirt2]),
+                                            compact=False).reshape(nocc,nvir,nocc,nvir).transpose(0,2,1,3) / nkpts
+                for ka in range(nkpts):
+                    if qi_map_sample[ka,ki] == len(qGrid_sample):
+                        num_skipped_qpts_t2 += 1
+                        if skip_if_no_qpt:
+                            continue
+                        else:
+                            raise ValueError(f"Cannot locate qpt for (k+q) in the qmesh.")
+                    
+                    kb = kconserv[ki,ka,kj]
+                    kvirt = ka if mode == 'direct' else kb
+                    kvirt2 = kb if mode == 'direct' else ka
+                    qi = qi_map[ka,ki] if qGrid_sample is None else qi_map_sample[ka,ki]
+
+                    # Remove zero/padded elements from denominator
+                    eia = LARGE_DENOM * np.ones((nocc, nvir), dtype=mo_energy[0].dtype)
+                    n0_ovp_ia = np.ix_(nonzero_opadding[ki], nonzero_vpadding[kvirt])
+                    eia[n0_ovp_ia] = (mo_e_o[ki][:,None] - mo_e_v[kvirt])[n0_ovp_ia]
+
+                    ejb = LARGE_DENOM * np.ones((nocc, nvir), dtype=mo_energy[0].dtype)
+                    n0_ovp_jb = np.ix_(nonzero_opadding[kj], nonzero_vpadding[kvirt2])
+                    ejb[n0_ovp_jb] = (mo_e_o[kj][:,None] - mo_e_v[kvirt2])[n0_ovp_jb]
+
+                    eijab = lib.direct_sum('ia,jb->ijab',eia,ejb)
+                    t2_ijab = np.conj(oovv_ij[kvirt]/eijab)
+                    t2[ki, kj, qi] = t2_ijab
+
+
+        log.timer("KMP2", *cput0)
+        print(f"Number of skipped qpts for oovv: {num_skipped_qpts_oovv}")
+        print(f"Number of skipped qpts for t2: {num_skipped_qpts_t2}")
+
+        return t2
