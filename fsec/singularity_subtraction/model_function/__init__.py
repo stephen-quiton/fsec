@@ -37,7 +37,7 @@ class ModelFunction(ABC):
     def coulomb_integral(self):
         """
         Compute the integral of the model times the Coulomb kernel over all space. Normalization follows
-        pyscf.pbc.gto.cell.ewald() i.e. 1/(2*np.pi)**3 * 4*np.pi * \int_{R^3} f(x,y,z)/(x^2+y^2+z^2) dx dy dz
+        pyscf.pbc.gto.cell.ewald() i.e. 1/(2*np.pi)**3 * 4*np.pi * int_{R^3} f(x,y,z)/(x^2+y^2+z^2) dx dy dz
         """
 
     @abstractmethod

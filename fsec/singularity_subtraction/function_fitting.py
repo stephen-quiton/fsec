@@ -246,7 +246,7 @@ class ExxScipyLeastSquares(FitMethod):
 
     def abs_diff_set_c0(self, params_input, input_data: np.ndarray, output_data: np.ndarray):
         """
-        Instead of setting constraint \sum_i c_i = 1, we force c_0 = 1 - \sum_i c_i and remove c_0 from
+        Instead of setting constraint sum_i c_i = 1, we force c_0 = 1 - sum_i c_i and remove c_0 from
         the optimization.
         """
         num_primitive_params = self.model_function.num_primitive_params
