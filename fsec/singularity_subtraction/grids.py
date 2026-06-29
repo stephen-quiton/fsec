@@ -46,7 +46,11 @@ class SSGrids(ABC):
         """
         Initialize the grid structure with a given cell and optional local grid size.
         """
-        pass
+        self.cell = cell
+        if N_local is not None:
+            self.N_local = np.array(N_local)
+        else:
+            self.N_local = None
 
     @abstractmethod
     def build_grids(self):
@@ -54,6 +58,36 @@ class SSGrids(ABC):
         Construct the relevant grids. Must be implemented by subclasses.
         """
         pass
+
+    def build_GptGrid3D(self,NsCell=None):
+        """
+        Build the reciprocal lattice for the cell.
+        """
+        NsCell = self.cell.mesh if NsCell is None else NsCell
+        Lvec_recip = self.cell.reciprocal_vectors()
+
+        Gx = np.fft.fftfreq(NsCell[0], d=1 / NsCell[0])
+        Gy = np.fft.fftfreq(NsCell[1], d=1 / NsCell[1])
+        Gz = np.fft.fftfreq(NsCell[2], d=1 / NsCell[2])
+        Gxx, Gyy, Gzz = np.meshgrid(Gx, Gy, Gz, indexing='ij')
+        self.GptGrid3D = np.hstack((Gxx.reshape(-1, 1), Gyy.reshape(-1, 1), Gzz.reshape(-1, 1))) @ Lvec_recip
+        return self.GptGrid3D
+    
+    def build_RptGrid3D(self):
+        """
+        Build the real space grid for the cell.
+        """
+        Lvec_real = self.Lvec_real
+        NsCell = self.cell.mesh
+        L_delta = Lvec_real / NsCell[:, None]
+
+        # Evaluate wavefunction on all real space grid points
+        # # Establishing real space grid (Generalized for arbitary volume defined by 3 vectors)
+        xv, yv, zv = np.meshgrid(np.arange(NsCell[0]), np.arange(NsCell[1]), np.arange(NsCell[2]), indexing='ij')
+        mesh_idx = np.hstack([xv.reshape(-1, 1), yv.reshape(-1, 1), zv.reshape(-1, 1)])
+        self.RptGrid3D = mesh_idx @ L_delta
+        return self.RptGrid3D
+
 
 class ExxSSGrids(SSGrids):
     def __init__(self, cell, kGrid1, kGrid2=None, N_local=None, dim=3,
@@ -88,20 +122,6 @@ class ExxSSGrids(SSGrids):
             self.N_local = np.array(N_local)
         self.Lvec_real = cell.lattice_vectors()
 
-    def build_GptGrid3D(self,NsCell=None):
-        """
-        Build the Gpt grid.
-        """
-        NsCell = self.cell.mesh if NsCell is None else NsCell
-        Lvec_recip = self.cell.reciprocal_vectors()
-
-        Gx = np.fft.fftfreq(NsCell[0], d=1 / NsCell[0])
-        Gy = np.fft.fftfreq(NsCell[1], d=1 / NsCell[1])
-        Gz = np.fft.fftfreq(NsCell[2], d=1 / NsCell[2])
-        Gxx, Gyy, Gzz = np.meshgrid(Gx, Gy, Gz, indexing='ij')
-        self.GptGrid3D = np.hstack((Gxx.reshape(-1, 1), Gyy.reshape(-1, 1), Gzz.reshape(-1, 1))) @ Lvec_recip
-        return self.GptGrid3D
-
     def build_qG_Grid(self):
         """
         Build the q+G grid.
@@ -118,17 +138,25 @@ class ExxSSGrids(SSGrids):
 
         return self.qG_grid
 
-    def build_RptGrid3D(self):
-        Lvec_real = self.Lvec_real
-        NsCell = self.cell.mesh
-        L_delta = Lvec_real / NsCell[:, None]
+    def build_qG_line_sampling(self, qG_norm_cutoff=None):
+        """
+        Build q+G samples along each reciprocal lattice direction.
+        """
+        qG_norm_cutoff = qG_norm_cutoff if qG_norm_cutoff is not None else self.qG_norm_cutoff
+        qG_full = []
+        B_over_nk = self.cell.reciprocal_vectors() / self.nks[:, None]
+        for i in range(B_over_nk.shape[0]):
+            B_i = B_over_nk[i, :]
+            B_i_norm = np.linalg.norm(B_i)
+            npoints = int(np.floor(qG_norm_cutoff / B_i_norm)) - 1
+            qG_full_i = np.zeros((npoints, 3))
+            for j in range(npoints):
+                qG_full_i[j, :] = (j + 1) * B_i
+            qG_full.append(qG_full_i)
+        qG_full = np.concatenate(qG_full, axis=0)
+        qG_full = np.concatenate([np.zeros((1, 3)), qG_full], axis=0)
+        return qG_full
 
-        # Evaluate wavefunction on all real space grid points
-        # # Establishing real space grid (Generalized for arbitary volume defined by 3 vectors)
-        xv, yv, zv = np.meshgrid(np.arange(NsCell[0]), np.arange(NsCell[1]), np.arange(NsCell[2]), indexing='ij')
-        mesh_idx = np.hstack([xv.reshape(-1, 1), yv.reshape(-1, 1), zv.reshape(-1, 1)])
-        self.RptGrid3D = mesh_idx @ L_delta
-        return self.RptGrid3D
 
     def build_RptGrid3D_local(self):
         """
@@ -257,9 +285,9 @@ class MP2SSGrids(ExxSSGrids):
 
     def build_qG_grid(self, qGrid, GptGrid3D, faster_dim='q'):
         if faster_dim == 'G':
-            return np.einsum('ij,kj->ikj', qGrid, np.ones_like(GptGrid3D)).reshape(-1, 3)                 + np.tile(GptGrid3D, (qGrid.shape[0], 1))
+            return np.einsum('ij,kj->ikj', qGrid, np.ones_like(GptGrid3D)).reshape(-1, 3) + np.tile(GptGrid3D, (qGrid.shape[0], 1))
         elif faster_dim == 'q':
-            return np.einsum('ij,kj->ikj', GptGrid3D, np.ones_like(qGrid)).reshape(-1, 3)                 + np.tile(qGrid, (GptGrid3D.shape[0], 1))
+            return np.einsum('ij,kj->ikj', GptGrid3D, np.ones_like(qGrid)).reshape(-1, 3) + np.tile(qGrid, (GptGrid3D.shape[0], 1))
         else:
             raise ValueError("faster_dim must be 'q' or 'G'")
 
@@ -278,7 +306,7 @@ class MP2SSGrids(ExxSSGrids):
         print("Computing only necessary SqG")
         import time
         temp_time = time.time()
-        qG_full = np.einsum('ij,kj->ikj', qGrid, np.ones_like(GptGrid3D)).reshape(-1, 3)                 + np.tile(GptGrid3D, (qGrid.shape[0], 1))
+        qG_full = np.einsum('ij,kj->ikj', qGrid, np.ones_like(GptGrid3D)).reshape(-1, 3) + np.tile(GptGrid3D, (qGrid.shape[0], 1))
 
         qG_norm = np.linalg.norm(qG_full, axis=1)
         if qG_norm_cutoff is None:

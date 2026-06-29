@@ -327,18 +327,7 @@ class MP2StructureFactorSampler:
 
         qG_full = None
         if line_sampling:
-            qG_full = []
-            B_over_nk = config.kmf.cell.reciprocal_vectors() / config.nks[:, None]
-            for i in range(B_over_nk.shape[0]):
-                B_i = B_over_nk[i, :]
-                B_i_norm = np.linalg.norm(B_i)
-                npoints = int(np.floor(config.qG_norm_cutoff / B_i_norm)) - 1
-                qG_full_i = np.zeros((npoints, 3))
-                for j in range(npoints):
-                    qG_full_i[j, :] = (j + 1) * B_i
-                qG_full.append(qG_full_i)
-            qG_full = np.concatenate(qG_full, axis=0)
-            qG_full = np.concatenate([np.zeros((1, 3)), qG_full], axis=0)
+            qG_full = mp2_structure_factor.grids.build_qG_line_sampling()
 
         result = StructureFactorSamplerResult(mp2_structure_factor=mp2_structure_factor, qG_full=qG_full)
 
