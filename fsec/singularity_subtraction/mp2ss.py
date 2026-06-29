@@ -80,6 +80,8 @@ class MP2SSOptions:
 @dataclass(frozen=True)
 class DirectCorrectionConfig:
     """Configuration bundle for MP2DirectCorrection."""
+    cell: object
+    kmf: object
     auxfunc_direct: str
     auxfunc_direct_q2: str
     auxfunc_direct_dG0: str
@@ -89,13 +91,6 @@ class DirectCorrectionConfig:
     fit_with_coul_q2: bool
     fit_with_coul_dG0: bool
     qG_norm_cutoff: object
-
-
-@dataclass(frozen=True)
-class DirectCorrectionDeps:
-    """Stable collaborators for MP2DirectCorrection."""
-    cell: object
-    kmf: object
     create_direct_model: object
     create_q2_model: object
     create_dg0_model: object
@@ -123,13 +118,8 @@ class ExchangeCorrectionConfig:
     fit_class: object
     fit_with_coul: bool
     qG_norm_cutoff: object
-    fit_multipliers: object = None
-
-
-@dataclass(frozen=True)
-class ExchangeCorrectionDeps:
-    """Stable collaborators for MP2ExchangeCorrection."""
     create_exchange_model: object
+    fit_multipliers: object = None
 
 
 @dataclass
@@ -342,15 +332,13 @@ class MP2StructureFactorSampler:
 class MP2DirectFourthOrderSS(SingularitySubtraction):
     results_title = "Direct Term (4th order)"
 
-    def __init__(self, config: DirectCorrectionConfig, deps: DirectCorrectionDeps):
+    def __init__(self, config: DirectCorrectionConfig):
         self.config = config
-        self.deps = deps
 
     def optimize_parameters(self, *, SqG_full_dG0, qG_full, grids, nks):
         config = self.config
-        deps = self.deps
 
-        Lvec_recip = deps.cell.reciprocal_vectors()
+        Lvec_recip = config.cell.reciprocal_vectors()
         numKpt3D = np.prod(nks)
         omega_star = abs(np.linalg.det(Lvec_recip))
         plot_prefactor = numKpt3D / omega_star
@@ -364,7 +352,7 @@ class MP2DirectFourthOrderSS(SingularitySubtraction):
         jac = '2-point'
         force_positive_params = True
         fixed_params = None
-        f_dG0, initial_params, fit_multipliers = deps.create_dg0_model(config.auxfunc_direct_dG0)
+        f_dG0, initial_params, fit_multipliers = config.create_dg0_model(config.auxfunc_direct_dG0)
 
 
         fit_method_dG0 = config.fit_class(f_dG0, fit_with_coul=config.fit_with_coul_dG0)
@@ -450,15 +438,13 @@ class MP2DirectFourthOrderSS(SingularitySubtraction):
 class MP2DirectSecondOrderSS(SingularitySubtraction):
     results_title = "Direct Term (2nd order)"
 
-    def __init__(self, config: DirectCorrectionConfig, deps: DirectCorrectionDeps):
+    def __init__(self, config: DirectCorrectionConfig):
         self.config = config
-        self.deps = deps
 
     def optimize_parameters(self, *, SqG_full_q2_part, qG_full, grids, nks):
         config = self.config
-        deps = self.deps
 
-        Lvec_recip = deps.cell.reciprocal_vectors()
+        Lvec_recip = config.cell.reciprocal_vectors()
         numKpt3D = np.prod(nks)
         omega_star = abs(np.linalg.det(Lvec_recip))
 
@@ -468,7 +454,7 @@ class MP2DirectSecondOrderSS(SingularitySubtraction):
         qGlocal_fit = qG_full
         qGlocal_grid_correction = grids.build_qG_grid(grids.qGrid, grids.GptGrid3D, faster_dim='G')
 
-        f_q2, initial_params, fit_multipliers = deps.create_q2_model(
+        f_q2, initial_params, fit_multipliers = config.create_q2_model(
             config.auxfunc_direct_q2, SqG=SqG_full_q2_part
         )
 
@@ -544,15 +530,13 @@ class MP2DirectFullSS(SingularitySubtraction):
 
     results_title = "Direct Term"
 
-    def __init__(self, config: DirectCorrectionConfig, deps: DirectCorrectionDeps):
+    def __init__(self, config: DirectCorrectionConfig):
         self.config = config
-        self.deps = deps
 
     def optimize_parameters(self, *, SqG_full_direct, qG_full, grids, nks):
         config = self.config
-        deps = self.deps
 
-        Lvec_recip = deps.cell.reciprocal_vectors()
+        Lvec_recip = config.cell.reciprocal_vectors()
         numKpt3D = np.prod(nks)
         omega_star = abs(np.linalg.det(Lvec_recip))
 
@@ -561,7 +545,7 @@ class MP2DirectFullSS(SingularitySubtraction):
 
         qGlocal_fit = qG_full
         qGlocal_grid_correction = grids.build_qG_grid(grids.qGrid, grids.GptGrid3D, faster_dim='G')
-        f_gauss, initial_params, fit_multipliers = deps.create_direct_model(config.auxfunc_direct, SqG=SqG_full_direct)
+        f_gauss, initial_params, fit_multipliers = config.create_direct_model(config.auxfunc_direct, SqG=SqG_full_direct)
 
         print("Using direct auxiliary function: ", f_gauss.__class__.__name__)
         f_gauss.set_parameters(initial_params)
@@ -669,13 +653,11 @@ class MP2ExchangeSS(SingularitySubtraction):
 
     results_title = "Exchange Term"
 
-    def __init__(self, config: ExchangeCorrectionConfig, deps: ExchangeCorrectionDeps):
+    def __init__(self, config: ExchangeCorrectionConfig):
         self.config = config
-        self.deps = deps
 
     def optimize_parameters(self, *, SqG_full_exchange, qG_full, grids, nks):
         config = self.config
-        deps = self.deps
 
         Lvec_recip = grids.cell.reciprocal_vectors()
         numKpt3D = np.prod(nks)
@@ -694,7 +676,7 @@ class MP2ExchangeSS(SingularitySubtraction):
         q2grid = qGlocal_grid_correction
         dvol_x = dvol
 
-        f_gauss, initial_params, fit_multipliers = deps.create_exchange_model(
+        f_gauss, initial_params, fit_multipliers = config.create_exchange_model(
             config.auxfunc_exchange, q2grid, dvol_x
         )
         if config.fit_multipliers is not None:
@@ -926,7 +908,6 @@ class MP2SS:
 
         self.exchange_correction = MP2ExchangeSS(
             self._build_exchange_correction_config(),
-            self._build_exchange_correction_deps(),
         )
         self._refresh_direct_correction()
 
@@ -936,17 +917,12 @@ class MP2SS:
             fit_class=self.fit_class,
             fit_with_coul=self.fit_with_coul,
             qG_norm_cutoff=self.qG_norm_cutoff,
-        )
-
-    def _build_exchange_correction_deps(self):
-        return ExchangeCorrectionDeps(
             create_exchange_model=self._create_exchange_model,
         )
 
     def _refresh_exchange_correction(self):
         self.exchange_correction = MP2ExchangeSS(
             self._build_exchange_correction_config(),
-            self._build_exchange_correction_deps(),
         )
 
 
@@ -966,6 +942,8 @@ class MP2SS:
 
     def _build_direct_correction_config(self):
         return DirectCorrectionConfig(
+            cell=self.cell,
+            kmf=self.kmf,
             auxfunc_direct=self.auxfunc_direct,
             auxfunc_direct_q2=self.auxfunc_direct_q2,
             auxfunc_direct_dG0=self.auxfunc_direct_dG0,
@@ -975,12 +953,6 @@ class MP2SS:
             fit_with_coul_q2=self.fit_with_coul_q2,
             fit_with_coul_dG0=self.fit_with_coul_dG0,
             qG_norm_cutoff=self.qG_norm_cutoff,
-        )
-
-    def _build_direct_correction_deps(self):
-        return DirectCorrectionDeps(
-            cell=self.cell,
-            kmf=self.kmf,
             create_direct_model=self._create_direct_model,
             create_q2_model=self._create_q2_model,
             create_dg0_model=self._create_dg0_model,
@@ -989,7 +961,6 @@ class MP2SS:
     def _refresh_direct_correction(self):
         self.direct_correction = MP2DirectSS(
             self._build_direct_correction_config(),
-            self._build_direct_correction_deps(),
         )
 
     def _create_direct_model(self, name, SqG=None):
@@ -1114,15 +1085,14 @@ class MP2SS:
             SqG_full_q2_part = SqG_full_direct - (4 * np.pi) * SqG_full_dG0 / denominator
 
             config = self._build_direct_correction_config()
-            deps = self._build_direct_correction_deps()
-            self.direct_second_order_correction = MP2DirectSecondOrderSS(config, deps)
+            self.direct_second_order_correction = MP2DirectSecondOrderSS(config)
             q2_result = self.direct_second_order_correction.compute_correction(
                 SqG_full_q2_part=SqG_full_q2_part,
                 qG_full=qG_full,
                 grids=self.grids,
                 nks=self.nks,
             )
-            self.direct_fourth_order_correction = MP2DirectFourthOrderSS(config, deps)
+            self.direct_fourth_order_correction = MP2DirectFourthOrderSS(config)
             dG0_result = self.direct_fourth_order_correction.compute_correction(
                 SqG_full_dG0=SqG_full_dG0,
                 qG_full=qG_full,
@@ -1147,7 +1117,7 @@ class MP2SS:
                 total_direct_correction_q2 + total_direct_correction_dG0
             )
 
-            self.direct_correction = MP2DirectFullSS(config, deps)
+            self.direct_correction = MP2DirectFullSS(config)
             self.direct_correction.results_title = "Direct Term (Full: 2nd + 4th)"
             self.direct_correction.quadrature_term = self.direct_quadrature_term
             self.direct_correction.integral_term = self.direct_integral_term
@@ -1157,7 +1127,6 @@ class MP2SS:
 
             self.direct_correction = MP2DirectFullSS(
                 self._build_direct_correction_config(),
-                self._build_direct_correction_deps(),
             )
             result = self.direct_correction.compute_direct_correction(
                 SqG_full_direct=SqG_full_direct,
@@ -1246,44 +1215,6 @@ class MP2SS:
         print('Total time for MP2SS: %.2f seconds' % (time.time() - ss_start))
         return total_correction
     
-    def _make_gpt_grid(self, NsCell, LsCell):
-        """
-        Make G-point grid similar to MATLAB make_gpt_grid function.
-        """
-        import numpy as np
-
-        periodicity = len(NsCell)
-        if periodicity == 3:
-            # 3D case
-            GptGrid_x = 2*np.pi * np.concatenate([np.arange(NsCell[0]//2 + 1),
-                                                np.arange(-NsCell[0]//2 + 1, 0)]) / LsCell[0]
-            GptGrid_y = 2*np.pi * np.concatenate([np.arange(NsCell[1]//2 + 1),
-                                                np.arange(-NsCell[1]//2 + 1, 0)]) / LsCell[1]
-            GptGrid_z = 2*np.pi * np.concatenate([np.arange(NsCell[2]//2 + 1),
-                                                np.arange(-NsCell[2]//2 + 1, 0)]) / LsCell[2]
-
-            XGptGrid, YGptGrid, ZGptGrid = np.meshgrid(GptGrid_x, GptGrid_y, GptGrid_z, indexing='ij')
-            GptGrid3D = np.column_stack([XGptGrid.flatten(), YGptGrid.flatten(), ZGptGrid.flatten()])
-        else:
-            # General case
-            grids = []
-            for i in range(periodicity):
-                if NsCell[i] % 2 == 0:
-                    grid_i = 2*np.pi * np.concatenate([np.arange(NsCell[i]//2 + 1),
-                                                     np.arange(-NsCell[i]//2 + 1, 0)]) / LsCell[i]
-                else:
-                    grid_i = 2*np.pi * np.concatenate([np.arange((NsCell[i]-1)//2 + 1),
-                                                     np.arange(-(NsCell[i]-1)//2, 0)]) / LsCell[i]
-                grids.append(grid_i)
-
-            # Create meshgrid
-            meshgrids = np.meshgrid(*grids, indexing='ij')
-            GptGrid3D = np.column_stack([g.flatten() for g in meshgrids])
-
-        return GptGrid3D
-
-
-
     def compute_quadrature_term(self):
         """
         Compute the total quadrature term (sum of direct and exchange).
