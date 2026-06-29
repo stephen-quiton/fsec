@@ -1,11 +1,11 @@
 from pyscf.pbc.tools import get_monkhorst_pack_size, madelung
 import time
-from . import model_function
+from fsec.singularity_subtraction import model_function
 # import traceback
-from .function_fitting import ExxScipyMinimize, ExxScipyLeastSquares
-from .structure_factor import ExxStructureFactor
-from .structure_factor.helpers_sf import build_uKpts as _build_uKpts
-from . import SingularitySubtraction
+from fsec.singularity_subtraction.function_fitting import ExxScipyMinimize, ExxScipyLeastSquares
+from fsec.singularity_subtraction.structure_factor import ExxStructureFactor
+from fsec.singularity_subtraction.structure_factor.helpers_sf import build_uKpts as _build_uKpts
+from fsec.singularity_subtraction import SingularitySubtraction
 
 import numpy as np
 

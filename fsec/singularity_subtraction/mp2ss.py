@@ -2,12 +2,12 @@ from dataclasses import dataclass, replace
 from pyscf.pbc.tools import get_monkhorst_pack_size
 import scipy.special
 import time
-from . import model_function
-from .function_fitting import ExxScipyMinimize, ExxScipyLeastSquares, MP2ScipyMinimize, MP2ScipyLeastSquares
-from .structure_factor import MP2StructureFactor
-from .structure_factor.helpers_sf import build_uKpts as _build_uKpts
-from .grids import MP2SSGrids
-from . import SingularitySubtraction
+from fsec.singularity_subtraction import model_function
+from fsec.singularity_subtraction.function_fitting import ExxScipyMinimize, ExxScipyLeastSquares, MP2ScipyMinimize, MP2ScipyLeastSquares
+from fsec.singularity_subtraction.structure_factor import MP2StructureFactor
+from fsec.singularity_subtraction.structure_factor.helpers_sf import build_uKpts as _build_uKpts
+from fsec.singularity_subtraction.grids import MP2SSGrids
+from fsec.singularity_subtraction import SingularitySubtraction
 from pyscf.pbc import df
 from pyscf import lib
 import numpy as np
@@ -18,7 +18,7 @@ def convert_t2_to_kikjq_format(t2,kGrid1,qGrid,cell,kGrid2=None):
     Convert t2 from kikjka format to kikjq format.
     """
     from scipy.spatial import KDTree
-    from .grids import minimum_image
+    from fsec.singularity_subtraction.grids import minimum_image
     nkpts = kGrid1.shape[0]
     if kGrid2 is None:
         kGrid2 = kGrid1

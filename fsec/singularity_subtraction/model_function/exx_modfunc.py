@@ -2,7 +2,7 @@ import numpy as np
 import scipy
 from scipy.integrate import quad
 
-from . import IsotropicModel, ModelFunction
+from fsec.singularity_subtraction.model_function import IsotropicModel, ModelFunction
 
 
 class ContractedGaussianModel(ModelFunction):

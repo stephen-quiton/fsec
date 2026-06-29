@@ -42,8 +42,8 @@ class SingularitySubtraction(ABC):
         print()
 
 
-from .exxss import ExxSS, ExxSSGaussian, ExxSSQuarticExponential
-from .mp2ss import (
+from fsec.singularity_subtraction.exxss import ExxSS, ExxSSGaussian, ExxSSQuarticExponential
+from fsec.singularity_subtraction.mp2ss import (
     DirectCorrectionConfig,
     DirectCorrectionDeps,
     DirectCorrectionResult,
@@ -59,4 +59,4 @@ from .mp2ss import (
     StructureFactorSamplerResult,
     MP2ExchangeSS,
 )
-from .analysis import OriginDiagnostics
+from fsec.singularity_subtraction.analysis import OriginDiagnostics
