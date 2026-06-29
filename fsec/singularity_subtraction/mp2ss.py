@@ -78,16 +78,34 @@ class MP2SSOptions:
 
 
 @dataclass(frozen=True)
-class DirectCorrectionConfig:
-    """Configuration bundle for MP2DirectCorrection."""
+class DirectFullCorrectionConfig:
+    """Configuration bundle for full MP2 direct correction."""
     cell: object
     auxfunc_direct: str
-    auxfunc_direct_q2: str
-    auxfunc_direct_dG0: str
     fit_class: object
     fit_method: object
     fit_with_coul: bool
+    qG_norm_cutoff: object
+
+
+@dataclass(frozen=True)
+class DirectSecondOrderCorrectionConfig:
+    """Configuration bundle for second-order MP2 direct correction."""
+    cell: object
+    auxfunc_direct_q2: str
+    fit_class: object
+    fit_method: object
     fit_with_coul_q2: bool
+    qG_norm_cutoff: object
+
+
+@dataclass(frozen=True)
+class DirectFourthOrderCorrectionConfig:
+    """Configuration bundle for fourth-order MP2 direct correction."""
+    cell: object
+    auxfunc_direct_dG0: str
+    fit_class: object
+    fit_method: object
     fit_with_coul_dG0: bool
     qG_norm_cutoff: object
 
@@ -327,7 +345,7 @@ class MP2StructureFactorSampler:
 class MP2DirectFourthOrderSS(SingularitySubtraction):
     results_title = "Direct Term (4th order)"
 
-    def __init__(self, config: DirectCorrectionConfig):
+    def __init__(self, config: DirectFourthOrderCorrectionConfig):
         self.config = config
 
     def _create_dg0_model(self, name):
@@ -441,7 +459,7 @@ class MP2DirectFourthOrderSS(SingularitySubtraction):
 class MP2DirectSecondOrderSS(SingularitySubtraction):
     results_title = "Direct Term (2nd order)"
 
-    def __init__(self, config: DirectCorrectionConfig):
+    def __init__(self, config: DirectSecondOrderCorrectionConfig):
         self.config = config
 
     def _create_q2_model(self, name, grids):
@@ -551,7 +569,7 @@ class MP2DirectFullSS(SingularitySubtraction):
 
     results_title = "Direct Term"
 
-    def __init__(self, config: DirectCorrectionConfig):
+    def __init__(self, config: DirectFullCorrectionConfig):
         self.config = config
 
     def _create_direct_model(self, name, grids):
@@ -957,18 +975,6 @@ class MP2SS:
         )
         self._refresh_direct_correction()
 
-    def _build_exchange_correction_config(self):
-        return ExchangeCorrectionConfig(
-            auxfunc_exchange=self.auxfunc_exchange,
-            fit_class=self.fit_class,
-            fit_with_coul=self.fit_with_coul,
-            qG_norm_cutoff=self.qG_norm_cutoff,
-        )
-
-    def _refresh_exchange_correction(self):
-        self.exchange_correction = MP2ExchangeSS(
-            self._build_exchange_correction_config(),
-        )
 
 
     def __str__(self):
@@ -985,24 +991,62 @@ class MP2SS:
         )
         self.grids.build_grids()
 
-    def _build_direct_correction_config(self):
-        return DirectCorrectionConfig(
+    def _build_direct_full_correction_config(self):
+        return DirectFullCorrectionConfig(
             cell=self.cell,
             auxfunc_direct=self.auxfunc_direct,
-            auxfunc_direct_q2=self.auxfunc_direct_q2,
-            auxfunc_direct_dG0=self.auxfunc_direct_dG0,
             fit_class=self.fit_class,
             fit_method=self.fit_method,
             fit_with_coul=self.fit_with_coul,
+            qG_norm_cutoff=self.qG_norm_cutoff,
+        )
+
+    def _build_direct_second_order_correction_config(self):
+        return DirectSecondOrderCorrectionConfig(
+            cell=self.cell,
+            auxfunc_direct_q2=self.auxfunc_direct_q2,
+            fit_class=self.fit_class,
+            fit_method=self.fit_method,
             fit_with_coul_q2=self.fit_with_coul_q2,
+            qG_norm_cutoff=self.qG_norm_cutoff,
+        )
+
+    def _build_direct_fourth_order_correction_config(self):
+        return DirectFourthOrderCorrectionConfig(
+            cell=self.cell,
+            auxfunc_direct_dG0=self.auxfunc_direct_dG0,
+            fit_class=self.fit_class,
+            fit_method=self.fit_method,
             fit_with_coul_dG0=self.fit_with_coul_dG0,
             qG_norm_cutoff=self.qG_norm_cutoff,
         )
 
     def _refresh_direct_correction(self):
-        self.direct_correction = MP2DirectSS(
-            self._build_direct_correction_config(),
+        if self.correct_q2_q4_separately:
+            self.direct_second_order_correction = MP2DirectSecondOrderSS(
+                self._build_direct_second_order_correction_config(),
+            )
+            self.direct_fourth_order_correction = MP2DirectFourthOrderSS(
+                self._build_direct_fourth_order_correction_config(),
+            )
+        else:
+            self.direct_correction = MP2DirectSS(
+                self._build_direct_full_correction_config(),
+            )
+
+    def _build_exchange_correction_config(self):
+        return ExchangeCorrectionConfig(
+            auxfunc_exchange=self.auxfunc_exchange,
+            fit_class=self.fit_class,
+            fit_with_coul=self.fit_with_coul,
+            qG_norm_cutoff=self.qG_norm_cutoff,
         )
+
+    def _refresh_exchange_correction(self):
+        self.exchange_correction = MP2ExchangeSS(
+            self._build_exchange_correction_config(),
+        )
+
 
     def set_fit_method(self, method):
         print("MP2SS singularity subtraction initial_guess", self.initial_guess)
@@ -1014,7 +1058,11 @@ class MP2SS:
                                                                 fit_with_coul=self.fit_with_coul,
                                                                 is_contraction=self.auxfunc_exchange.is_contraction,
                                                                 initial_guess=self.initial_guess)
-        if hasattr(self, 'direct_correction'):
+        if (
+            hasattr(self, 'direct_correction')
+            or hasattr(self, 'direct_second_order_correction')
+            or hasattr(self, 'direct_fourth_order_correction')
+        ):
             self._refresh_direct_correction()
         if hasattr(self, 'exchange_correction'):
             self._refresh_exchange_correction()
@@ -1075,15 +1123,18 @@ class MP2SS:
             denominator[denominator < 1e-8] = np.inf
             SqG_full_q2_part = SqG_full_direct - (4 * np.pi) * SqG_full_dG0 / denominator
 
-            config = self._build_direct_correction_config()
-            self.direct_second_order_correction = MP2DirectSecondOrderSS(config)
+            second_order_config = self._build_direct_second_order_correction_config()
+            fourth_order_config = self._build_direct_fourth_order_correction_config()
+            full_config = self._build_direct_full_correction_config()
+
+            self.direct_second_order_correction = MP2DirectSecondOrderSS(second_order_config)
             q2_result = self.direct_second_order_correction.compute_correction(
                 SqG_full_q2_part=SqG_full_q2_part,
                 qG_full=qG_full,
                 grids=self.grids,
                 nks=self.nks,
             )
-            self.direct_fourth_order_correction = MP2DirectFourthOrderSS(config)
+            self.direct_fourth_order_correction = MP2DirectFourthOrderSS(fourth_order_config)
             dG0_result = self.direct_fourth_order_correction.compute_correction(
                 SqG_full_dG0=SqG_full_dG0,
                 qG_full=qG_full,
@@ -1108,7 +1159,7 @@ class MP2SS:
                 total_direct_correction_q2 + total_direct_correction_dG0
             )
 
-            self.direct_correction = MP2DirectFullSS(config)
+            self.direct_correction = MP2DirectFullSS(full_config)
             self.direct_correction.results_title = "Direct Term (Full: 2nd + 4th)"
             self.direct_correction.quadrature_term = self.direct_quadrature_term
             self.direct_correction.integral_term = self.direct_integral_term
@@ -1117,7 +1168,7 @@ class MP2SS:
         else:
 
             self.direct_correction = MP2DirectFullSS(
-                self._build_direct_correction_config(),
+                self._build_direct_full_correction_config(),
             )
             result = self.direct_correction.compute_direct_correction(
                 SqG_full_direct=SqG_full_direct,
