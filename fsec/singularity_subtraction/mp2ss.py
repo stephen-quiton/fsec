@@ -1,11 +1,9 @@
 from dataclasses import dataclass, replace
 from pyscf.pbc.tools import get_monkhorst_pack_size
-import scipy.special
 import time
 from fsec.singularity_subtraction import model_function
-from fsec.singularity_subtraction.function_fitting import ExxScipyMinimize, ExxScipyLeastSquares, MP2ScipyMinimize, MP2ScipyLeastSquares
+from fsec.singularity_subtraction.function_fitting import MP2ScipyMinimize, MP2ScipyLeastSquares
 from fsec.singularity_subtraction.structure_factor import MP2StructureFactor
-from fsec.singularity_subtraction.structure_factor.helpers_sf import build_uKpts as _build_uKpts
 from fsec.singularity_subtraction.grids import MP2SSGrids
 from fsec.singularity_subtraction import SingularitySubtraction
 from pyscf.pbc import df
@@ -22,7 +20,7 @@ def convert_t2_to_kikjq_format(t2,kGrid1,qGrid,cell,kGrid2=None):
     nkpts = kGrid1.shape[0]
     if kGrid2 is None:
         kGrid2 = kGrid1
-    q_tree = scipy.spatial.KDTree(qGrid)
+    q_tree = KDTree(qGrid)
     # t2 = self.t2#.copy()
     # t2 = np.zeros_like(self.t2)
     
@@ -142,37 +140,6 @@ class ExchangeCorrectionResult:
     exchange_integral_term: float
     exchange_quadrature_term: float
 
-
-@dataclass(frozen=True)
-class StructureFactorSamplerConfig:
-    """Configuration bundle for MP2StructureFactorSampler."""
-    kmf: object
-    kmp: object
-    cell: object
-    nks: object
-    t2: object
-    sq_ke_cutoff: object
-    qG_norm_cutoff: object
-    sq_inversion_symm: bool
-    t2_store_type: str
-    min_points: int
-    N_local: object
-
-
-@dataclass(frozen=True)
-class StructureFactorSamplerDeps:
-    """Stable collaborators for MP2StructureFactorSampler."""
-    pass
-
-
-@dataclass
-class StructureFactorSamplerResult:
-    """Structured outputs from structure-factor sampling."""
-    mp2_structure_factor: object
-    qG_full: object = None
-
-def build_uKpts(kmf, kpts, mo_coeff_kpts, NsCell=None, rptGrid3D=None, nbands=None):
-    return _build_uKpts(kmf, kpts, mo_coeff_kpts, NsCell=NsCell, rptGrid3D=rptGrid3D, nbands=nbands)
 
 # ---------------------------------------------------------------------------
 # Model spec registries for MP2SS
@@ -302,44 +269,6 @@ EXCHANGE_MODEL_SPECS = {
         'initial_params': np.array([1e-4, 1.0]),
     },
 }
-class MP2StructureFactorSampler:
-    """Structure-factor builder with explicit configuration and inputs."""
-
-    def __init__(self, config: StructureFactorSamplerConfig, deps: StructureFactorSamplerDeps):
-        self.config = config
-        self.deps = deps
-
-    def set_structure_factor(self, *, direct=True, exchange=True, dG0=False,
-                             line_sampling=False):
-        config = self.config
-
-        mp2_structure_factor = MP2StructureFactor(
-            config.kmf, config.kmp, t2=config.t2, N_local=config.N_local,
-            sq_ke_cutoff=config.sq_ke_cutoff, qG_cutoff=config.qG_norm_cutoff,
-            sq_inversion_symm=config.sq_inversion_symm,
-            t2_store_type=config.t2_store_type,
-        )
-        mp2_structure_factor.set_grids(min_fit_points=config.min_points)
-
-        qGrid = mp2_structure_factor.grids.qGrid
-        kpts = config.kmp.kpts
-        cell = config.cell
-        if config.t2_store_type == 'kikjka':
-            convert_t2_to_kikjq_format(mp2_structure_factor.t2, kpts, qGrid, cell)
-
-        qG_full = None
-        if line_sampling:
-            qG_full = mp2_structure_factor.grids.build_qG_line_sampling()
-
-        result = StructureFactorSamplerResult(mp2_structure_factor=mp2_structure_factor, qG_full=qG_full)
-
-        mp2_structure_factor.build_structure_factor(
-            qG_full=qG_full, direct=direct, exchange=exchange, dG0=dG0,
-        )
-
-        if config.t2_store_type == 'kikjka':
-            convert_t2_to_kikjq_format(mp2_structure_factor.t2, kpts, qGrid, cell)
-        return result
 
 
 class MP2DirectFourthOrderSS(SingularitySubtraction):
@@ -832,15 +761,6 @@ class MP2ExchangeSS(SingularitySubtraction):
             exchange_quadrature_term=quadrature_term,
         )
 
-    def compute_exchange_correction(self, *, SqG_full_exchange=None, qG_full=None, grids=None, nks=None):
-        return self.compute_correction(
-            SqG_full_exchange=SqG_full_exchange,
-            qG_full=qG_full,
-            grids=grids,
-            nks=nks,
-        )
-
-
 class MP2SS:
     """
     A class for performing singularity subtraction to correct the finite size error in
@@ -854,11 +774,6 @@ class MP2SS:
         auxfunc_exchange (model_function.ModelFunction): Auxiliary function for exchange correction
         fit_method (callable): Fitting method for the auxiliary functions.
     """
-    fit_method_dict = {
-        'scipy_minimize': ExxScipyMinimize,
-        'scipy_least_squares': ExxScipyLeastSquares
-    }
-
     def __init__(self, kmf, kmp, auxfunc_direct=None, auxfunc_exchange=None, t2=None,
                  options=None, **kwargs):
         """
@@ -965,10 +880,6 @@ class MP2SS:
         
         self.mp2_structure_factor = None
         self.grids = None
-        self.quadrature_term_direct = None
-        self.quadrature_term_exchange = None
-        self.integral_term_direct = None
-        self.integral_term_exchange = None
 
         self.exchange_correction = MP2ExchangeSS(
             self._build_exchange_correction_config(),
@@ -1041,33 +952,6 @@ class MP2SS:
             fit_with_coul=self.fit_with_coul,
             qG_norm_cutoff=self.qG_norm_cutoff,
         )
-
-    def _refresh_exchange_correction(self):
-        self.exchange_correction = MP2ExchangeSS(
-            self._build_exchange_correction_config(),
-        )
-
-
-    def set_fit_method(self, method):
-        print("MP2SS singularity subtraction initial_guess", self.initial_guess)
-        # Create separate fit methods for direct and exchange
-        self.fit_method_direct = MP2SS.fit_method_dict[method](self.auxfunc_direct, fit_with_coul=self.fit_with_coul,
-                                                               is_contraction=self.auxfunc_direct.is_contraction,
-                                                               initial_guess=self.initial_guess)
-        self.fit_method_exchange = MP2SS.fit_method_dict[method](self.auxfunc_exchange,
-                                                                fit_with_coul=self.fit_with_coul,
-                                                                is_contraction=self.auxfunc_exchange.is_contraction,
-                                                                initial_guess=self.initial_guess)
-        if (
-            hasattr(self, 'direct_correction')
-            or hasattr(self, 'direct_second_order_correction')
-            or hasattr(self, 'direct_fourth_order_correction')
-        ):
-            self._refresh_direct_correction()
-        if hasattr(self, 'exchange_correction'):
-            self._refresh_exchange_correction()
-        return self.fit_method_direct  # Return one for compatibility
-    
 
     def set_structure_factor(self, direct=True, exchange=True, dG0=False,
                              line_sampling=False):
@@ -1257,30 +1141,6 @@ class MP2SS:
         print('Total time for MP2SS: %.2f seconds' % (time.time() - ss_start))
         return total_correction
     
-    def compute_quadrature_term(self):
-        """
-        Compute the total quadrature term (sum of direct and exchange).
-        """
-        if self.quadrature_term_direct is None or self.quadrature_term_exchange is None:
-            self.compute_direct_correction()
-            self.compute_exchange_correction()
-
-        total_quadrature = self.quadrature_term_direct + self.quadrature_term_exchange
-        print(f"Total quadrature term: {total_quadrature}")
-        return total_quadrature
-
-    def compute_integral_term(self):
-        """
-        Compute the total integral term (sum of direct and exchange).
-        """
-        if self.integral_term_direct is None or self.integral_term_exchange is None:
-            self.compute_direct_correction()
-            self.compute_exchange_correction()
-
-        total_integral = self.integral_term_direct + self.integral_term_exchange
-        print(f"Total integral term: {total_integral}")
-        return total_integral
-
     def print_results(self):
         print(f"=== Results for {self.__class__.__name__} ===")
         print(f"Using with_df_ints: {self.with_df_ints}")

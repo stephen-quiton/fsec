@@ -151,7 +151,7 @@ class MP2ScipyMinimize(FitMethod):
         constraints = ()
         bounds = [(lb, np.inf)] * len(self.model_function.parameters)
         result = minimize(residuals_to_fit, input_initial_guess, args=(input_data, output_data), constraints=constraints,
-                          bounds=bounds, options={'disp':True, 'ftol':1e-10, 'gtol':1e-10})
+                          bounds=bounds, options={'ftol':1e-12, 'gtol':1e-12})
         if not result.success:
             print("WARNING:Fitting failed. Result: ", result)
             raise ValueError("Fitting failed. Result: ", result)
@@ -213,7 +213,7 @@ class ExxScipyMinimize(FitMethod):
 
 
         result = minimize(residuals, input_initial_guess, args=(input_data, output_data), constraints=constraints,
-                          bounds=bounds,options={'disp':True, 'ftol':1e-8, 'gtol':1e-8})
+                          bounds=bounds,options={'ftol':1e-8, 'gtol':1e-8})
         self.fitted_parameters = result.x
         if not result.success:
             print("WARNING:Fitting failed. Result: ", result)
