@@ -117,7 +117,7 @@ class KnownValues(unittest.TestCase):
             -5.774656738478592e-05,
         ]
     )
-    REFERENCE_MP2_DG0_20 = np.array(
+    REFERENCE_MP2_Q4_20 = np.array(
         [
             -7.717470607835843e-41,
             -7.230553951086863e-41,
@@ -179,7 +179,7 @@ class KnownValues(unittest.TestCase):
 
         cls.mp2_qG = cls.QG_20
         cls.SqG_full_direct = cls.REFERENCE_MP2_DIRECT_20
-        cls.SqG_full_dG0 = cls.REFERENCE_MP2_DG0_20
+        cls.SqG_full_q4 = cls.REFERENCE_MP2_Q4_20
         cls.SqG_full_exchange = cls.REFERENCE_MP2_EXCHANGE_20
 
     def _assert_parameters(self, fit_cls, model, input_data, output_data, expected, **fit_kwargs):
@@ -275,7 +275,7 @@ class KnownValues(unittest.TestCase):
             MP2ScipyMinimize,
             model,
             self.mp2_qG,
-            self.SqG_full_dG0,
+            self.SqG_full_q4,
             expected,
             fit_multipliers=[1.0e4, 1.0],
         )
@@ -287,7 +287,7 @@ class KnownValues(unittest.TestCase):
             MP2ScipyLeastSquares,
             model,
             self.mp2_qG,
-            self.SqG_full_dG0,
+            self.SqG_full_q4,
             expected,
         )
 
