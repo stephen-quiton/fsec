@@ -81,7 +81,6 @@ class MP2SSOptions:
 class DirectCorrectionConfig:
     """Configuration bundle for MP2DirectCorrection."""
     cell: object
-    kmf: object
     auxfunc_direct: str
     auxfunc_direct_q2: str
     auxfunc_direct_dG0: str
@@ -91,9 +90,6 @@ class DirectCorrectionConfig:
     fit_with_coul_q2: bool
     fit_with_coul_dG0: bool
     qG_norm_cutoff: object
-    create_direct_model: object
-    create_q2_model: object
-    create_dg0_model: object
 
 
 @dataclass
@@ -118,7 +114,6 @@ class ExchangeCorrectionConfig:
     fit_class: object
     fit_with_coul: bool
     qG_norm_cutoff: object
-    create_exchange_model: object
     fit_multipliers: object = None
 
 
@@ -335,6 +330,14 @@ class MP2DirectFourthOrderSS(SingularitySubtraction):
     def __init__(self, config: DirectCorrectionConfig):
         self.config = config
 
+    def _create_dg0_model(self, name):
+        spec = DG0_MODEL_SPECS[name]
+        cls = model_function.ModelFunction.get_class(spec['cls_name'])
+        initial_params = spec['initial_params'].copy()
+        m = cls(parameters=initial_params, negative=True,
+                deg=spec.get('deg', 4))
+        return m, initial_params, spec.get('fit_multipliers')
+
     def optimize_parameters(self, *, SqG_full_dG0, qG_full, grids, nks):
         config = self.config
 
@@ -352,7 +355,7 @@ class MP2DirectFourthOrderSS(SingularitySubtraction):
         jac = '2-point'
         force_positive_params = True
         fixed_params = None
-        f_dG0, initial_params, fit_multipliers = config.create_dg0_model(config.auxfunc_direct_dG0)
+        f_dG0, initial_params, fit_multipliers = self._create_dg0_model(config.auxfunc_direct_dG0)
 
 
         fit_method_dG0 = config.fit_class(f_dG0, fit_with_coul=config.fit_with_coul_dG0)
@@ -441,6 +444,24 @@ class MP2DirectSecondOrderSS(SingularitySubtraction):
     def __init__(self, config: DirectCorrectionConfig):
         self.config = config
 
+    def _create_q2_model(self, name, grids):
+        if name not in Q2_MODEL_SPECS:
+            name = 'XNGaussStackedSingularity'
+        spec = Q2_MODEL_SPECS[name]
+        cls = model_function.ModelFunction.get_class(spec['cls_name'])
+
+        if spec['type'] == 'qmesh':
+            m = cls(qGrid=grids.qGrid, cell=grids.cell,
+                    deltaGs=grids.GptGrid3D, remove_deltaG_zero=True)
+            m.compute_sum_g_q_deltaG()
+            initial_params = np.array([spec['c0_scale'] / m.g0, 1.0])
+        else:
+            initial_params = spec['initial_params'].copy()
+            m = cls(parameters=initial_params, negative=True,
+                    deg=spec.get('deg', 2))
+
+        return m, initial_params, spec.get('fit_multipliers')
+
     def optimize_parameters(self, *, SqG_full_q2_part, qG_full, grids, nks):
         config = self.config
 
@@ -454,8 +475,8 @@ class MP2DirectSecondOrderSS(SingularitySubtraction):
         qGlocal_fit = qG_full
         qGlocal_grid_correction = grids.build_qG_grid(grids.qGrid, grids.GptGrid3D, faster_dim='G')
 
-        f_q2, initial_params, fit_multipliers = config.create_q2_model(
-            config.auxfunc_direct_q2, SqG=SqG_full_q2_part
+        f_q2, initial_params, fit_multipliers = self._create_q2_model(
+            config.auxfunc_direct_q2, grids
         )
 
         fit_method = config.fit_class(f_q2, fit_with_coul=config.fit_with_coul_q2)
@@ -533,6 +554,22 @@ class MP2DirectFullSS(SingularitySubtraction):
     def __init__(self, config: DirectCorrectionConfig):
         self.config = config
 
+    def _create_direct_model(self, name, grids):
+        spec = DIRECT_MODEL_SPECS[name]
+        cls = model_function.ModelFunction.get_class(spec['cls_name'])
+
+        if spec['type'] == 'qmesh':
+            m = cls(qGrid=grids.qGrid, cell=grids.cell,
+                    deltaGs=grids.GptGrid3D)
+            m.compute_sum_g_q_deltaG()
+            initial_params = np.array([spec['c0_scale'] / m.g0, 1.0])
+        else:
+            initial_params = spec['initial_params'].copy()
+            m = cls(parameters=initial_params, negative=True,
+                    deg=spec.get('deg', 2))
+
+        return m, initial_params, spec.get('fit_multipliers')
+
     def optimize_parameters(self, *, SqG_full_direct, qG_full, grids, nks):
         config = self.config
 
@@ -545,7 +582,9 @@ class MP2DirectFullSS(SingularitySubtraction):
 
         qGlocal_fit = qG_full
         qGlocal_grid_correction = grids.build_qG_grid(grids.qGrid, grids.GptGrid3D, faster_dim='G')
-        f_gauss, initial_params, fit_multipliers = config.create_direct_model(config.auxfunc_direct, SqG=SqG_full_direct)
+        f_gauss, initial_params, fit_multipliers = self._create_direct_model(
+            config.auxfunc_direct, grids
+        )
 
         print("Using direct auxiliary function: ", f_gauss.__class__.__name__)
         f_gauss.set_parameters(initial_params)
@@ -656,6 +695,13 @@ class MP2ExchangeSS(SingularitySubtraction):
     def __init__(self, config: ExchangeCorrectionConfig):
         self.config = config
 
+    def _create_exchange_model(self, name, q2grid, dvol):
+        spec = EXCHANGE_MODEL_SPECS[name]
+        cls = model_function.ModelFunction.get_class(spec['cls_name'])
+        initial_params = spec['initial_params'].copy()
+        m = cls(parameters=initial_params, q2s=q2grid, dvol=dvol)
+        return m, initial_params, spec.get('fit_multipliers')
+
     def optimize_parameters(self, *, SqG_full_exchange, qG_full, grids, nks):
         config = self.config
 
@@ -676,7 +722,7 @@ class MP2ExchangeSS(SingularitySubtraction):
         q2grid = qGlocal_grid_correction
         dvol_x = dvol
 
-        f_gauss, initial_params, fit_multipliers = config.create_exchange_model(
+        f_gauss, initial_params, fit_multipliers = self._create_exchange_model(
             config.auxfunc_exchange, q2grid, dvol_x
         )
         if config.fit_multipliers is not None:
@@ -917,7 +963,6 @@ class MP2SS:
             fit_class=self.fit_class,
             fit_with_coul=self.fit_with_coul,
             qG_norm_cutoff=self.qG_norm_cutoff,
-            create_exchange_model=self._create_exchange_model,
         )
 
     def _refresh_exchange_correction(self):
@@ -943,7 +988,6 @@ class MP2SS:
     def _build_direct_correction_config(self):
         return DirectCorrectionConfig(
             cell=self.cell,
-            kmf=self.kmf,
             auxfunc_direct=self.auxfunc_direct,
             auxfunc_direct_q2=self.auxfunc_direct_q2,
             auxfunc_direct_dG0=self.auxfunc_direct_dG0,
@@ -953,65 +997,12 @@ class MP2SS:
             fit_with_coul_q2=self.fit_with_coul_q2,
             fit_with_coul_dG0=self.fit_with_coul_dG0,
             qG_norm_cutoff=self.qG_norm_cutoff,
-            create_direct_model=self._create_direct_model,
-            create_q2_model=self._create_q2_model,
-            create_dg0_model=self._create_dg0_model,
         )
 
     def _refresh_direct_correction(self):
         self.direct_correction = MP2DirectSS(
             self._build_direct_correction_config(),
         )
-
-    def _create_direct_model(self, name, SqG=None):
-        spec = DIRECT_MODEL_SPECS[name]
-        cls = model_function.ModelFunction.get_class(spec['cls_name'])
-
-        if spec['type'] == 'qmesh':
-            m = cls(qGrid=self.grids.qGrid, cell=self.kmf.cell,
-                    deltaGs=self.grids.GptGrid3D)
-            m.compute_sum_g_q_deltaG()
-            initial_params = np.array([spec['c0_scale'] / m.g0, 1.0])
-        else:
-            initial_params = spec['initial_params'].copy()
-            m = cls(parameters=initial_params, negative=True,
-                    deg=spec.get('deg', 2))
-
-        return m, initial_params, spec.get('fit_multipliers')
-
-
-    def _create_q2_model(self, name, SqG=None):
-        if name not in Q2_MODEL_SPECS:
-            name = 'XNGaussStackedSingularity'
-        spec = Q2_MODEL_SPECS[name]
-        cls = model_function.ModelFunction.get_class(spec['cls_name'])
-
-        if spec['type'] == 'qmesh':
-            m = cls(qGrid=self.grids.qGrid, cell=self.kmf.cell,
-                    deltaGs=self.grids.GptGrid3D, remove_deltaG_zero=True)
-            m.compute_sum_g_q_deltaG()
-            initial_params = np.array([spec['c0_scale'] / m.g0, 1.0])
-        else:
-            initial_params = spec['initial_params'].copy()
-            m = cls(parameters=initial_params, negative=True,
-                    deg=spec.get('deg', 2))
-
-        return m, initial_params, spec.get('fit_multipliers')
-
-    def _create_dg0_model(self, name):
-        spec = DG0_MODEL_SPECS[name]
-        cls = model_function.ModelFunction.get_class(spec['cls_name'])
-        initial_params = spec['initial_params'].copy()
-        m = cls(parameters=initial_params, negative=True,
-                deg=spec.get('deg', 4))
-        return m, initial_params, spec.get('fit_multipliers')
-
-    def _create_exchange_model(self, name, q2grid, dvol):
-        spec = EXCHANGE_MODEL_SPECS[name]
-        cls = model_function.ModelFunction.get_class(spec['cls_name'])
-        initial_params = spec['initial_params'].copy()
-        m = cls(parameters=initial_params, q2s=q2grid, dvol=dvol)
-        return m, initial_params, spec.get('fit_multipliers')
 
     def set_fit_method(self, method):
         print("MP2SS singularity subtraction initial_guess", self.initial_guess)
