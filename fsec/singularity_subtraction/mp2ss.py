@@ -96,7 +96,6 @@ class DirectCorrectionDeps:
     """Stable collaborators for MP2DirectCorrection."""
     cell: object
     kmf: object
-    sampler: object
     create_direct_model: object
     create_q2_model: object
     create_dg0_model: object
@@ -925,34 +924,11 @@ class MP2SS:
         self.integral_term_direct = None
         self.integral_term_exchange = None
 
-        
-        self.structure_factor_sampler = MP2StructureFactorSampler(
-            self._build_structure_factor_sampler_config(),
-            self._build_structure_factor_sampler_deps(),
-        )
         self.exchange_correction = MP2ExchangeSS(
             self._build_exchange_correction_config(),
             self._build_exchange_correction_deps(),
         )
         self._refresh_direct_correction()
-
-    def _build_structure_factor_sampler_config(self):
-        return StructureFactorSamplerConfig(
-            kmf=self.kmf,
-            kmp=self.kmp,
-            cell=self.cell,
-            nks=self.nks,
-            t2=self.t2,
-            sq_ke_cutoff=self.sq_ke_cutoff,
-            qG_norm_cutoff=self.qG_norm_cutoff,
-            sq_inversion_symm=self.sq_inversion_symm,
-            t2_store_type=self.t2_store_type,
-            min_points=self.min_points,
-            N_local=self.N_local,
-        )
-
-    def _build_structure_factor_sampler_deps(self):
-        return StructureFactorSamplerDeps()
 
     def _build_exchange_correction_config(self):
         return ExchangeCorrectionConfig(
@@ -965,12 +941,6 @@ class MP2SS:
     def _build_exchange_correction_deps(self):
         return ExchangeCorrectionDeps(
             create_exchange_model=self._create_exchange_model,
-        )
-
-    def _refresh_structure_factor_sampler(self):
-        self.structure_factor_sampler = MP2StructureFactorSampler(
-            self._build_structure_factor_sampler_config(),
-            self._build_structure_factor_sampler_deps(),
         )
 
     def _refresh_exchange_correction(self):
@@ -1011,7 +981,6 @@ class MP2SS:
         return DirectCorrectionDeps(
             cell=self.cell,
             kmf=self.kmf,
-            sampler=self.structure_factor_sampler,
             create_direct_model=self._create_direct_model,
             create_q2_model=self._create_q2_model,
             create_dg0_model=self._create_dg0_model,
@@ -1087,20 +1056,36 @@ class MP2SS:
             self._refresh_direct_correction()
         if hasattr(self, 'exchange_correction'):
             self._refresh_exchange_correction()
-        if hasattr(self, 'structure_factor_sampler'):
-            self._refresh_structure_factor_sampler()
         return self.fit_method_direct  # Return one for compatibility
     
 
     def set_structure_factor(self, direct=True, exchange=True, dG0=False,
                              line_sampling=False):
-        result = self.structure_factor_sampler.set_structure_factor(
-            direct=direct,
-            exchange=exchange,
-            dG0=dG0,
-            line_sampling=line_sampling,
+        mp2_structure_factor = MP2StructureFactor(
+            self.kmf, self.kmp, t2=self.t2, N_local=self.N_local,
+            sq_ke_cutoff=self.sq_ke_cutoff, qG_cutoff=self.qG_norm_cutoff,
+            sq_inversion_symm=self.sq_inversion_symm,
+            t2_store_type=self.t2_store_type,
         )
-        self.mp2_structure_factor = result.mp2_structure_factor
+        mp2_structure_factor.set_grids(min_fit_points=self.min_points)
+
+        qGrid = mp2_structure_factor.grids.qGrid
+        kpts = self.kmp.kpts
+        if self.t2_store_type == 'kikjka':
+            convert_t2_to_kikjq_format(mp2_structure_factor.t2, kpts, qGrid, self.cell)
+
+        qG_full = None
+        if line_sampling:
+            qG_full = mp2_structure_factor.grids.build_qG_line_sampling()
+
+        mp2_structure_factor.build_structure_factor(
+            qG_full=qG_full, direct=direct, exchange=exchange, dG0=dG0,
+        )
+
+        if self.t2_store_type == 'kikjka':
+            convert_t2_to_kikjq_format(mp2_structure_factor.t2, kpts, qGrid, self.cell)
+
+        self.mp2_structure_factor = mp2_structure_factor
         return self.mp2_structure_factor
     
 
