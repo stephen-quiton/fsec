@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 import numpy as np
-from .model_function import ModelFunction, IsotropicModel
+from fsec.singularity_subtraction.model_function import ModelFunction, IsotropicModel
 from scipy.optimize import least_squares, minimize
 
 class FitMethod(ABC):

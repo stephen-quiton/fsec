@@ -3,8 +3,8 @@ import inspect
 import numpy as np
 import scipy.special
 
-from . import model_function
-from .function_fitting import MP2ScipyLeastSquares
+from fsec.singularity_subtraction import model_function
+from fsec.singularity_subtraction.function_fitting import MP2ScipyLeastSquares
 
 
 class OriginDiagnostics:

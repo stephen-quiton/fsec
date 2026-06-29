@@ -3,9 +3,9 @@ import scipy
 from scipy.integrate import quad
 from scipy.spatial import KDTree
 
-from ..grids import minimum_image
+from fsec.singularity_subtraction.grids import minimum_image
 
-from . import ModelFunction
+from fsec.singularity_subtraction.model_function import ModelFunction
 
 
 class XNGeneral(ModelFunction):

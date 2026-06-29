@@ -83,8 +83,8 @@ class IsotropicModel(ModelFunction):
         return prefactor * integral
 
 
-from .exx_modfunc import ContractedGaussianModel, ExponentialModel, ExpoLorentzianModel, QuarticExponentialModel
-from .mp2_direct_modfunc import (
+from fsec.singularity_subtraction.model_function.exx_modfunc import ContractedGaussianModel, ExponentialModel, ExpoLorentzianModel, QuarticExponentialModel
+from fsec.singularity_subtraction.model_function.mp2_direct_modfunc import (
     PolynomialModel,
     XNExpAbs,
     XNExpAbs2,
@@ -97,7 +97,7 @@ from .mp2_direct_modfunc import (
     XNGeneral,
     XNQuarticExponential,
 )
-from .mp2_exchange_modfunc import (
+from fsec.singularity_subtraction.model_function.mp2_exchange_modfunc import (
     MP2StackedSingularityExchange,
     XNExpAbs2StackedSingularityExchange,
     XNExpAbsStackedSingularityExchange,

@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 import time
-from ..grids import minimum_image, ExxSSGrids, MP2SSGrids
+from fsec.singularity_subtraction.grids import minimum_image, ExxSSGrids, MP2SSGrids
 from pyscf.pbc.tools import get_monkhorst_pack_size
 import scipy
 from pyscf.pbc.tools.pbc import mesh_to_cutoff, cutoff_to_mesh
@@ -11,7 +11,7 @@ from pyscf.pbc import df, dft, scf
 from pyscf.lib import logger, einsum
 from pyscf.pbc.mp import kmp2
 import numpy as np
-from .helpers_sf import build_uKpts as _build_uKpts
+from fsec.singularity_subtraction.structure_factor.helpers_sf import build_uKpts as _build_uKpts
 from scipy.spatial import KDTree
 from pyscf.lib.numpy_helper import einsum as pyscf_einsum
 
@@ -86,5 +86,5 @@ class StructureFactor(ABC):
     def build_uKpts(kmf, kpts, mo_coeff_kpts, NsCell=None, rptGrid3D=None, nbands=None):
         return _build_uKpts(kmf, kpts, mo_coeff_kpts, NsCell=NsCell, rptGrid3D=rptGrid3D, nbands=nbands)
 
-from .exx_sf import ExxStructureFactor
-from .mp2_sf import MP2StructureFactor
+from fsec.singularity_subtraction.structure_factor.exx_sf import ExxStructureFactor
+from fsec.singularity_subtraction.structure_factor.mp2_sf import MP2StructureFactor

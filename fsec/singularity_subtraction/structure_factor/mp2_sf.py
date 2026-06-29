@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 import time
-from ..grids import minimum_image, MP2SSGrids
+from fsec.singularity_subtraction.grids import minimum_image, MP2SSGrids
 from pyscf.pbc.tools import get_monkhorst_pack_size
 import scipy
 from pyscf.pbc.tools.pbc import mesh_to_cutoff, cutoff_to_mesh
@@ -17,8 +17,8 @@ from pyscf.lib.numpy_helper import einsum as pyscf_einsum
 
 
 
-from . import StructureFactor
-from .helpers_sf import build_uKpts
+from fsec.singularity_subtraction.structure_factor import StructureFactor
+from fsec.singularity_subtraction.structure_factor.helpers_sf import build_uKpts
 
 class MP2StructureFactor(StructureFactor):
     def __init__(self, kmf, kmp, t2=None, N_local=None, sq_ke_cutoff=None, qG_cutoff=None, relative_shift=0.0, **kwargs):

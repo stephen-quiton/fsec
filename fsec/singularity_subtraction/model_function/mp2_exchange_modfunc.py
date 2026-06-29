@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.integrate import quad
 
-from . import ModelFunction
+from fsec.singularity_subtraction.model_function import ModelFunction
 
 
 class MP2StackedSingularityExchange(ModelFunction):
@@ -199,4 +199,3 @@ class XNQuarticExponentialStackedSingularityExchange(MP2StackedSingularityExchan
         gamma1 = self.beta / self.alpha
         gamma2 = self.kappa / self.alpha
         return np.exp(-self.alpha * (np.sqrt(1 + gamma1 * r**2 + gamma2 * r**4) - 1))
-
