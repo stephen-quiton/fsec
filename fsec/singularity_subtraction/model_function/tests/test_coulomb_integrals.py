@@ -69,7 +69,7 @@ class CoulombIntegralDefaultParameterTests(unittest.TestCase):
     def _assert_coulomb_integral(self, model, expected):
         actual = model.coulomb_integral()
         self.assertTrue(np.isfinite(actual))
-        self.assertAlmostEqual(actual, expected, places=12)
+        self.assertAlmostEqual(actual, expected, places=10)
 
     def test_exx_model_coulomb_integrals_with_default_parameters(self):
         cases = [

@@ -49,8 +49,9 @@ class FitMethod(ABC):
         f_fit = self.model_function.eval_model_r(input_data)
         abs_diff = np.abs(f_fit - output_data)
         if self.fit_with_coul:
-            abs_diff *= 1./input_data**self.coul_deg
-            abs_diff = abs_diff[input_data > 1e-8]
+            nonzero_mask = np.abs(input_data) > 1e-8
+            input_data_nonzero = input_data[nonzero_mask]
+            abs_diff[nonzero_mask] *= 1./input_data_nonzero**self.coul_deg
         return abs_diff
 
     def abs_diff_xyz(self, params_input, input_data: np.ndarray, output_data: np.ndarray):
@@ -61,8 +62,9 @@ class FitMethod(ABC):
         f_fit = self.model_function.eval_model(input_data)
         abs_diff = f_fit - output_data
         if self.fit_with_coul:
-            abs_diff *= 1./np.sum(input_data**self.coul_deg, axis=1)
-            abs_diff = abs_diff[np.linalg.norm(input_data, axis=1) > 1e-8] # take out the singular point
+            nonzero_mask = np.linalg.norm(input_data, axis=1) > 1e-8
+            input_data_nonzero = input_data[nonzero_mask]
+            abs_diff[nonzero_mask] *= 1./np.sum(input_data_nonzero**self.coul_deg, axis=1)
         return abs_diff
 
     def _prepare_input_data(self, input_data: np.ndarray):
