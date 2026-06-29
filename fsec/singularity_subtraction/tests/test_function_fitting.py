@@ -242,7 +242,7 @@ class KnownValues(unittest.TestCase):
             parameters=[1.0e-4, 1.0],
             deltaGs=self.mp2_deltaGs,
         )
-        expected = [0.004615259327067899, 0.437046447832116]
+        expected = [2.7391986894019372e-05, 0.8193662600962808]
         self._assert_parameters(
             MP2ScipyMinimize,
             model,

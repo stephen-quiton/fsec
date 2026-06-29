@@ -52,11 +52,7 @@ from fsec.singularity_subtraction.mp2ss import (
     ExchangeCorrectionResult,
     MP2SS,
     MP2SSOptions,
-    MP2StructureFactorSampler,
     MP2DirectSS,
-    StructureFactorSamplerConfig,
-    StructureFactorSamplerDeps,
-    StructureFactorSamplerResult,
     MP2ExchangeSS,
 )
 from fsec.singularity_subtraction.analysis import OriginDiagnostics
