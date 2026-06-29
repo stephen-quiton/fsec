@@ -76,29 +76,29 @@ class KnownValues(unittest.TestCase):
 
         qG = result["qG_full"]
         SqG_full_direct = result["SqG_full_direct"]
-        SqG_full_dG0 = result["SqG_full_dG0"]
+        SqG_full_q4 = result["SqG_full_q4"]
         SqG_full_exchange = result["SqG_full_exchange"]
 
         self.assertEqual(len(SqG_full_direct), len(qG))
-        self.assertEqual(len(SqG_full_dG0), len(qG))
+        self.assertEqual(len(SqG_full_q4), len(qG))
         self.assertEqual(len(SqG_full_exchange), len(qG))
 
         self.assertTrue(np.all(np.isfinite(SqG_full_direct)))
-        self.assertTrue(np.all(np.isfinite(SqG_full_dG0)))
+        self.assertTrue(np.all(np.isfinite(SqG_full_q4)))
         self.assertTrue(np.all(np.isfinite(SqG_full_exchange)))
         self.assertTrue(np.isrealobj(SqG_full_direct))
-        self.assertTrue(np.isrealobj(SqG_full_dG0))
+        self.assertTrue(np.isrealobj(SqG_full_q4))
         self.assertTrue(np.isrealobj(SqG_full_exchange))
 
         idx10 = self._closest_10_indices(qG)
         qG_10 = qG[idx10]
         SqG_direct_10 = SqG_full_direct[idx10]
-        SqG_dG0_10 = SqG_full_dG0[idx10]
+        SqG_q4_10 = SqG_full_q4[idx10]
         SqG_exchange_10 = SqG_full_exchange[idx10]
 
         self.assertEqual(len(qG_10), 10)
         self.assertEqual(len(SqG_direct_10), 10)
-        self.assertEqual(len(SqG_dG0_10), 10)
+        self.assertEqual(len(SqG_q4_10), 10)
         self.assertEqual(len(SqG_exchange_10), 10)
         self.assertTrue(np.any(np.linalg.norm(qG_10, axis=1) <= 1e-8))
 
@@ -114,7 +114,7 @@ class KnownValues(unittest.TestCase):
             -0.00011402023793530142,
             -0.00011402023793529546,
         ]
-        reference_SqG_dG0_10 = [
+        reference_SqG_q4_10 = [
             -7.717470607835845e-41,
             -7.230553951086867e-41,
             -7.230159348266723e-41,
@@ -141,7 +141,7 @@ class KnownValues(unittest.TestCase):
 
         for actual, reference in zip(SqG_direct_10, reference_SqG_direct_10):
             self.assertAlmostEqual(actual, reference, places=8)
-        for actual, reference in zip(SqG_dG0_10, reference_SqG_dG0_10):
+        for actual, reference in zip(SqG_q4_10, reference_SqG_q4_10):
             self.assertAlmostEqual(actual, reference, places=8)
         for actual, reference in zip(SqG_exchange_10, reference_SqG_exchange_10):
             self.assertAlmostEqual(actual, reference, places=8)
@@ -182,8 +182,8 @@ class KnownValues(unittest.TestCase):
             atol=1e-10,
         )
         np.testing.assert_allclose(
-            actual["SqG_full_dG0"],
-            reference["SqG_full_dG0"],
+            actual["SqG_full_q4"],
+            reference["SqG_full_q4"],
             rtol=1e-7,
             atol=1e-10,
         )

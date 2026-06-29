@@ -252,7 +252,7 @@ class MP2StructureFactor(StructureFactor):
         qG_full = qG_full[np.linalg.norm(qG_full, axis=1) < qG_cutoff + 1e-8,:]
         SqG_full_direct = np.zeros(qG_full.shape[0], dtype=np.float64)
         SqG_full_exchange = np.zeros(qG_full.shape[0], dtype=np.float64)
-        SqG_full_dG0 = np.zeros(qG_full.shape[0], dtype=np.float64)
+        SqG_full_q4 = np.zeros(qG_full.shape[0], dtype=np.float64)
         if t2_required and t2_store_type == 'kikjka':
             # Convert ki,kj,q -> qi,ki,kj
             t2 = t2.transpose(2, 0, 1, 3, 4, 5, 6)
@@ -334,7 +334,7 @@ class MP2StructureFactor(StructureFactor):
                     if exchange:
                         SqG_full_exchange[qG] = SqG_full_exchange[equiv_qG_index]
                     if dG0:
-                        SqG_full_dG0[qG] = SqG_full_dG0[equiv_qG_index]
+                        SqG_full_q4[qG] = SqG_full_q4[equiv_qG_index]
                     precompute_total_time += time.time()-precompute_start_time
                     continue
                 
@@ -475,7 +475,7 @@ class MP2StructureFactor(StructureFactor):
                     if dG0:
                         np_dot_reset = time.time()
                         temp_SqG_k =  2 * np.sum(np.abs(rijab_ki)**2 / eijab_ki)
-                        SqG_full_dG0[qG] += temp_SqG_k.real / nkpts
+                        SqG_full_q4[qG] += temp_SqG_k.real / nkpts
                         np_dot_time += time.time()-np_dot_reset
 
                 oovv_ij = None
@@ -537,15 +537,15 @@ class MP2StructureFactor(StructureFactor):
                         eijab = eijab_full[qi]
 
                     np_dot_reset = time.time()
-                    # rijab_ovr_e =  np.einsum(contract_expression_dG0,rho_ia_full,rho_jb_full.conj(),np.sqrt(np.abs(eijab)),optimize=True
+                    # rijab_ovr_e =  np.einsum(contract_expression_q4,rho_ia_full,rho_jb_full.conj(),np.sqrt(np.abs(eijab)),optimize=True
                     rijab_ovr_e = rijab * np.sqrt(np.abs(eijab)).ravel()
 
                     rijab_ovr_e = rijab_ovr_e * dvol**2 / (nkpts * omega_cell) # For using rijab instead of t2
                     
-                    # temp_SqG_k_dG0 = -2 * np.sum(np.abs(rijab_ovr_e)**2) # Check prefactor here
-                    # temp_SqG_k_dG0 = -2 * np.dot(rijab_ovr_e, rijab_ovr_e.conj()) #ORIGINAL 3/3/26
-                    temp_SqG_k_dG0 = -2 * pyscf_einsum('i,i->', rijab_ovr_e, rijab_ovr_e.conj()) #NEW 3/3/26
-                    SqG_full_dG0[qG] += temp_SqG_k_dG0.real / nkpts
+                    # temp_SqG_k_q4 = -2 * np.sum(np.abs(rijab_ovr_e)**2) # Check prefactor here
+                    # temp_SqG_k_q4 = -2 * np.dot(rijab_ovr_e, rijab_ovr_e.conj()) #ORIGINAL 3/3/26
+                    temp_SqG_k_q4 = -2 * pyscf_einsum('i,i->', rijab_ovr_e, rijab_ovr_e.conj()) #NEW 3/3/26
+                    SqG_full_q4[qG] += temp_SqG_k_q4.real / nkpts
                     np_dot_time += time.time()-np_dot_reset
 
 
@@ -565,7 +565,7 @@ class MP2StructureFactor(StructureFactor):
         if update_class:
             self.SqG_full_direct = SqG_full_direct
             self.SqG_full_exchange = SqG_full_exchange
-            self.SqG_full_dG0 = SqG_full_dG0
+            self.SqG_full_q4 = SqG_full_q4
             self.qG_full = qG_full
                 
         # Find zero index
@@ -574,13 +574,13 @@ class MP2StructureFactor(StructureFactor):
         if len(zero_idx) > 0:
             print("MP2StructureFactorTruncated: S_direct(0) = ",SqG_full_direct[zero_idx])
             print("MP2StructureFactorTruncated: S_exchange(0) = ",SqG_full_exchange[zero_idx])
-            print("MP2StructureFactorTruncated: S_dG0(0) = ",SqG_full_dG0[zero_idx])
+            print("MP2StructureFactorTruncated: S_q4(0) = ",SqG_full_q4[zero_idx])
 
 
         result_dict = {
             'SqG_full_direct': SqG_full_direct,
             'SqG_full_exchange': SqG_full_exchange,
-            'SqG_full_dG0': SqG_full_dG0,
+            'SqG_full_q4': SqG_full_q4,
             'qG_full': qG_full,
         }
         return result_dict

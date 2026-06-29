@@ -262,7 +262,7 @@ class OriginDiagnostics:
                 update_class=False, qG_cutoff=np.inf,
                 direct=True, exchange=False, dG0=dG0)
             if direct:
-                SqG_curvature_samples = (result_dict['SqG_full_dG0'] if dG0
+                SqG_curvature_samples = (result_dict['SqG_full_q4'] if dG0
                                          else result_dict['SqG_full_direct'])
             elif exchange:
                 SqG_curvature_samples = result_dict['SqG_full_exchange']

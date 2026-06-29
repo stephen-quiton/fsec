@@ -54,10 +54,10 @@ def convert_t2_to_kikjq_format(t2,kGrid1,qGrid,cell,kGrid2=None):
 @dataclass(frozen=True)
 class MP2SSOptions:
     """User-facing optional controls for MP2SS."""
-    auxfunc_direct: str = 'XNGauss'
-    auxfunc_direct_q2: object = 'XNGaussStackedSingularity'
-    auxfunc_direct_dG0: object = 'XNGauss'
-    auxfunc_exchange: str = 'XNGaussStackedSingularity'
+    auxfunc_direct: str = 'Gauss'
+    auxfunc_direct_q2: object = 'Gauss'
+    auxfunc_direct_q4: object = 'Gauss'
+    auxfunc_exchange: str = 'Gauss'
     fit_with_coul: bool = True
     truncated_qG_grid: bool = True
     qG_grid_type: str = 'truncated'
@@ -68,7 +68,7 @@ class MP2SSOptions:
     sq_inversion_symm: bool = True
     sq_ke_cutoff: object = None
     fit_method: object = 'scipy_least_squares'
-    fit_with_coul_dG0: bool = False
+    fit_with_coul_q4: bool = False
     fit_with_coul_q2: bool = False
     line_sampling: bool = False
     t2_store_type: str = 'kikjka'
@@ -101,10 +101,10 @@ class DirectSecondOrderCorrectionConfig:
 class DirectFourthOrderCorrectionConfig:
     """Configuration bundle for fourth-order MP2 direct correction."""
     cell: object
-    auxfunc_direct_dG0: str
+    auxfunc_direct_q4: str
     fit_class: object
     fit_method: object
-    fit_with_coul_dG0: bool
+    fit_with_coul_q4: bool
     qG_norm_cutoff: object
 
 
@@ -117,10 +117,10 @@ class DirectCorrectionResult:
     direct_quadrature_term_q2: object = None
     direct_integral_term_q2: object = None
     direct_total_correction_q2: object = None
-    direct_quadrature_term_dG0: object = None
-    direct_integral_term_dG0: object = None
-    direct_total_correction_dG0: object = None
-    direct_total_correction_q2_dG0: object = None
+    direct_quadrature_term_q4: object = None
+    direct_integral_term_q4: object = None
+    direct_total_correction_q4: object = None
+    direct_total_correction_q2_q4: object = None
 
 
 @dataclass
@@ -147,74 +147,49 @@ class ExchangeCorrectionResult:
 # instantiate the correct ModelFunction subclass.
 #
 # Construction types:
-#   'simple'  — XNGeneral subclass: cls(parameters=..., negative=True, deg=D)
-#   'qmesh'   — QMesh variant: cls(qGrid, cell, deltaGs) + compute_sum_g_q_deltaG()
-#   'exchange' — exchange variant: cls(parameters=..., q2s=..., dvol=...)
+#   'simple'  — No special treatment
+#   'qmesh'   — QMesh variant: Constructed to avoid an (nq * nG)**2 scaling in the evaluation of 
+#                   MP2 direct-type auxiliary functions.
+#   'exchange' — exchange variant: constructed specifically for the exchange term.
 # ---------------------------------------------------------------------------
 
 DIRECT_MODEL_SPECS = {
-    'XNGaussStackedSingularity': {
+    'Gauss': {
         'cls_name': 'XNGaussStackedSingularityQMesh',
         'type': 'qmesh',
         'c0_scale': 1.0e-4,
         'fit_multipliers': [1e4, 1.0],
-        'plot_cls_name': 'XNGaussStackedSingularity',
     },
-    'XNExpAbs': {
+    'ExpAbs': {
         'cls_name': 'XNExpAbsStackedSingularityQMesh',
         'type': 'qmesh',
         'c0_scale': 1.0e-4,
         'fit_multipliers': [1e4, 1.0],
-        'plot_cls_name': 'XNExpAbsStackedSingularity',
-    },
-    'XNExponential': {
-        'cls_name': 'XNExponential',
-        'type': 'simple',
-        'initial_params': np.array([1e-4, 1.0, 1.0]),
-        'fit_multipliers': [1e4, 1.0, 1.0],
-    },
-    'XNQuarticExponential': {
-        'cls_name': 'XNQuarticExponential',
-        'type': 'simple',
-        'initial_params': np.array([1e-4, 1.0, 1.0, 1.0]),
-        'fit_multipliers': [1e4, 1.0, 1.0, 1.0],
-    },
-    'XNGauss': {
-        'cls_name': 'XNGauss',
-        'type': 'simple',
-        'initial_params': np.array([1.0, 1.0]),
-        'fit_multipliers': None,
-        'deg': 2,
     },
 }
 
-DG0_MODEL_SPECS = {
-    'XNGauss': {
+Q4_MODEL_SPECS = {
+    'Gauss': {
         'cls_name': 'XNGauss',
         'initial_params': np.array([1e-4, 1.0]),
         'fit_multipliers': [1e4, 1.0],
     },
-    'XNGaussStackedSingularity': {
-        'cls_name': 'XNGauss',
-        'initial_params': np.array([1e-4, 1.0]),
-        'fit_multipliers': [1e4, 1.0],
-    },
-    'XNExponential': {
+    'Exponential': {
         'cls_name': 'XNExponential',
         'initial_params': np.array([1e-4, 1.0, 1.0]),
         'fit_multipliers': [1e4, 1.0, 1.0],
     },
-    'XNQuarticExponential': {
+    'QuarticExponential': {
         'cls_name': 'XNQuarticExponential',
         'initial_params': np.array([1e-4, 1.0, 1.0, 1.0]),
         'fit_multipliers': [1e4, 1.0, 1.0, 1.0],
     },
-    'XNExpAbs': {
+    'ExpAbs': {
         'cls_name': 'XNExpAbs',
         'initial_params': np.array([1e-4, 1.0]),
         'fit_multipliers': [1e4, 1.0],
     },
-    'XNExpAbs2': {
+    'ExpAbs2': {
         'cls_name': 'XNExpAbs2',
         'initial_params': np.array([1e-4, 1.0, 1.0]),
         'fit_multipliers': [1e4, 1.0, 1.0],
@@ -222,20 +197,13 @@ DG0_MODEL_SPECS = {
 }
 
 Q2_MODEL_SPECS = {
-    'XNExpAbs': {
+    'ExpAbs': {
         'cls_name': 'XNExpAbsStackedSingularityQMesh',
         'type': 'qmesh',
         'c0_scale': 1.0e-5,
         'fit_multipliers': [1e4, 1.0],
     },
-    'XNGauss': {
-        'cls_name': 'XNGauss',
-        'type': 'simple',
-        'initial_params': np.array([1.0, 1.0]),
-        'fit_multipliers': None,
-        'deg': 2,
-    },
-    'XNGaussStackedSingularity': {
+    'Gauss': {
         'cls_name': 'XNGaussStackedSingularityQMesh',
         'type': 'qmesh',
         'c0_scale': 1.0e-5,
@@ -244,29 +212,25 @@ Q2_MODEL_SPECS = {
 }
 
 EXCHANGE_MODEL_SPECS = {
-    'XNExponentialExchange': {
+    'Exponential': {
         'cls_name': 'XNExponentialStackedSingularityExchange',
         'initial_params': np.array([1e-4, 1.0, 1.0]),
     },
-    'XNQuarticExponentialExchange': {
+    'QuarticExponential': {
         'cls_name': 'XNQuarticExponentialStackedSingularityExchange',
         'initial_params': np.array([1e-4, 1.0, 1.0, 1.0]),
     },
-    'XNGaussStackedSingularityExchange': {
+    'Gauss': {
         'cls_name': 'XNGaussStackedSingularityExchange',
         'initial_params': np.array([1e-4, 1.0]),
     },
-    'XNExpAbsStackedSingularityExchange': {
+    'ExpAbs': {
         'cls_name': 'XNExpAbsStackedSingularityExchange',
         'initial_params': np.array([1e-4, 1.0]),
     },
-    'XNExpAbs2StackedSingularityExchange': {
+    'ExpAbs2': {
         'cls_name': 'XNExpAbs2StackedSingularityExchange',
         'initial_params': np.array([1e-4, 1.0, 1.0]),
-    },
-    'XNExpAbsStackedSingularity': {
-        'cls_name': 'XNExpAbsStackedSingularityExchange',
-        'initial_params': np.array([1e-4, 1.0]),
     },
 }
 
@@ -277,15 +241,15 @@ class MP2DirectFourthOrderSS(SingularitySubtraction):
     def __init__(self, config: DirectFourthOrderCorrectionConfig):
         self.config = config
 
-    def _create_dg0_model(self, name):
-        spec = DG0_MODEL_SPECS[name]
+    def _create_q4_model(self, name):
+        spec = Q4_MODEL_SPECS[name]
         cls = model_function.ModelFunction.get_class(spec['cls_name'])
         initial_params = spec['initial_params'].copy()
         m = cls(parameters=initial_params, negative=True,
                 deg=spec.get('deg', 4))
         return m, initial_params, spec.get('fit_multipliers')
 
-    def optimize_parameters(self, *, SqG_full_dG0, qG_full, grids, nks):
+    def optimize_parameters(self, *, SqG_full_q4, qG_full, grids, nks):
         config = self.config
 
         Lvec_recip = config.cell.reciprocal_vectors()
@@ -302,51 +266,51 @@ class MP2DirectFourthOrderSS(SingularitySubtraction):
         jac = '2-point'
         force_positive_params = True
         fixed_params = None
-        f_dG0, initial_params, fit_multipliers = self._create_dg0_model(config.auxfunc_direct_dG0)
+        f_q4, initial_params, fit_multipliers = self._create_q4_model(config.auxfunc_direct_q4)
 
 
-        fit_method_dG0 = config.fit_class(f_dG0, fit_with_coul=config.fit_with_coul_dG0)
-        fit_method_dG0.initial_guess = initial_params
-        fit_method_dG0.coul_deg = 4 if config.fit_with_coul_dG0 else None
+        fit_method_q4 = config.fit_class(f_q4, fit_with_coul=config.fit_with_coul_q4)
+        fit_method_q4.initial_guess = initial_params
+        fit_method_q4.coul_deg = 4 if config.fit_with_coul_q4 else None
         if config.qG_norm_cutoff is not None:
             mask = np.linalg.norm(qGlocal_fit, axis=1) <= config.qG_norm_cutoff
             print(f"Fitting with {len(qGlocal_fit[mask])} points")
             print(f"qG_norm_cutoff: {config.qG_norm_cutoff}")
-            SqG_vals = SqG_full_dG0[mask]
+            SqG_vals = SqG_full_q4[mask]
             qGlocal_fit_vals = qGlocal_fit[mask]
 
-            fitted_params_dG0 = fit_method_dG0.fit_model(
+            fitted_params_q4 = fit_method_q4.fit_model(
                 qGlocal_fit_vals, SqG_vals, fit_multipliers=fit_multipliers,
                 fixed_params=fixed_params, force_positive_params=force_positive_params,
-                jac=jac, x_scale='jac', max_nfev=1000 * f_dG0.num_params
+                jac=jac, x_scale='jac', max_nfev=1000 * f_q4.num_params
             )
         else:
-            fitted_params_dG0 = fit_method_dG0.fit_model(
-                qGlocal_fit, SqG_full_dG0, fit_multipliers=fit_multipliers,
+            fitted_params_q4 = fit_method_q4.fit_model(
+                qGlocal_fit, SqG_full_q4, fit_multipliers=fit_multipliers,
                 fixed_params=fixed_params, force_positive_params=force_positive_params,
-                jac=jac, x_scale='jac', max_nfev=1000 * f_dG0.num_params
+                jac=jac, x_scale='jac', max_nfev=1000 * f_q4.num_params
             )
 
-        f_dG0.set_parameters(fitted_params_dG0)
-        print("Unnormalized dG0 c4_value: ", f_dG0.c0)
-        print("Normalized dG0 c4_value: ", f_dG0.c0 * plot_prefactor)
+        f_q4.set_parameters(fitted_params_q4)
+        print("Unnormalized q4 c4_value: ", f_q4.c0)
+        print("Normalized q4 c4_value: ", f_q4.c0 * plot_prefactor)
 
 
-        return f_dG0, qGlocal_grid_correction, numKpt3D, omega_star
+        return f_q4, qGlocal_grid_correction, numKpt3D, omega_star
 
-    def compute_quadrature_term(self, *, f_dG0, qGlocal_grid_correction):
-        prefac_dG0 = 4 * np.pi * (4 * np.pi)
+    def compute_quadrature_term(self, *, f_q4, qGlocal_grid_correction):
+        prefac_q4 = 4 * np.pi * (4 * np.pi)
         denominator = np.linalg.norm(qGlocal_grid_correction, axis=1) ** 2
         denominator[denominator < 1e-8] = np.inf
-        return prefac_dG0 * np.sum(f_dG0.eval_model(qGlocal_grid_correction) / denominator ** 2)
+        return prefac_q4 * np.sum(f_q4.eval_model(qGlocal_grid_correction) / denominator ** 2)
 
-    def compute_integral_term(self, *, f_dG0, numKpt3D, omega_star):
-        prefactor_dG0 = 4 * np.pi * (4 * np.pi) * numKpt3D / omega_star
-        return prefactor_dG0 * f_dG0.coulomb_integral(coul_deg=4)
+    def compute_integral_term(self, *, f_q4, numKpt3D, omega_star):
+        prefactor_q4 = 4 * np.pi * (4 * np.pi) * numKpt3D / omega_star
+        return prefactor_q4 * f_q4.coulomb_integral(coul_deg=4)
 
-    def compute_correction(self, *, SqG_full_dG0=None, qG_full=None, grids=None, nks=None):
-        if SqG_full_dG0 is None:
-            raise ValueError("SqG_full_dG0 must be provided explicitly")
+    def compute_correction(self, *, SqG_full_q4=None, qG_full=None, grids=None, nks=None):
+        if SqG_full_q4 is None:
+            raise ValueError("SqG_full_q4 must be provided explicitly")
         if qG_full is None:
             raise ValueError("qG_full must be provided explicitly")
         if grids is None:
@@ -355,7 +319,7 @@ class MP2DirectFourthOrderSS(SingularitySubtraction):
             raise ValueError("nks must be provided explicitly")
 
         optimized = self.optimize_parameters(
-            SqG_full_dG0=SqG_full_dG0,
+            SqG_full_q4=SqG_full_q4,
             qG_full=qG_full,
             grids=grids,
             nks=nks,
@@ -363,26 +327,26 @@ class MP2DirectFourthOrderSS(SingularitySubtraction):
         if optimized is None:
             return None
 
-        f_dG0, qGlocal_grid_correction, numKpt3D, omega_star = optimized
-        quadrature_term_dG0 = self.compute_quadrature_term(
-            f_dG0=f_dG0,
+        f_q4, qGlocal_grid_correction, numKpt3D, omega_star = optimized
+        quadrature_term_q4 = self.compute_quadrature_term(
+            f_q4=f_q4,
             qGlocal_grid_correction=qGlocal_grid_correction,
         )
-        integral_term_dG0 = self.compute_integral_term(
-            f_dG0=f_dG0,
+        integral_term_q4 = self.compute_integral_term(
+            f_q4=f_q4,
             numKpt3D=numKpt3D,
             omega_star=omega_star,
         )
-        total_direct_correction_dG0 = -quadrature_term_dG0 + integral_term_dG0
+        total_direct_correction_q4 = -quadrature_term_q4 + integral_term_q4
 
-        self.quadrature_term = quadrature_term_dG0
-        self.integral_term = integral_term_dG0
-        self.correction = total_direct_correction_dG0
+        self.quadrature_term = quadrature_term_q4
+        self.integral_term = integral_term_q4
+        self.correction = total_direct_correction_q4
 
-        print(f"dG0 quadrature term: {quadrature_term_dG0}")
-        print(f"dG0 integral term: {integral_term_dG0}")
-        print(f"dG0 total correction: {total_direct_correction_dG0}")
-        return quadrature_term_dG0, integral_term_dG0, total_direct_correction_dG0
+        print(f"q4 quadrature term: {quadrature_term_q4}")
+        print(f"q4 integral term: {integral_term_q4}")
+        print(f"q4 total correction: {total_direct_correction_q4}")
+        return quadrature_term_q4, integral_term_q4, total_direct_correction_q4
 
 
 class MP2DirectSecondOrderSS(SingularitySubtraction):
@@ -393,7 +357,7 @@ class MP2DirectSecondOrderSS(SingularitySubtraction):
 
     def _create_q2_model(self, name, grids):
         if name not in Q2_MODEL_SPECS:
-            name = 'XNGaussStackedSingularity'
+            name = 'Gauss'
         spec = Q2_MODEL_SPECS[name]
         cls = model_function.ModelFunction.get_class(spec['cls_name'])
 
@@ -622,7 +586,7 @@ class MP2DirectFullSS(SingularitySubtraction):
 
         return result
 
-    def compute_direct_correction(self, *, SqG_full_direct, qG_full, SqG_full_dG0, grids, nks):
+    def compute_direct_correction(self, *, SqG_full_direct, qG_full, SqG_full_q4, grids, nks):
         return self.compute_correction(
             SqG_full_direct=SqG_full_direct,
             qG_full=qG_full,
@@ -794,9 +758,6 @@ class MP2SS:
                 )
             kwargs['correct_q2_q4_separately'] = kwargs.pop('correct_q4_q2_separately')
 
-        if auxfunc_exchange == 'XNGaussStackedSingularity':
-            auxfunc_exchange = 'XNGaussStackedSingularityExchange'
-
         if options is None:
             options = MP2SSOptions(**kwargs)
         else:
@@ -811,8 +772,6 @@ class MP2SS:
             auxfunc_direct = options.auxfunc_direct
         if auxfunc_exchange is None:
             auxfunc_exchange = options.auxfunc_exchange
-        if auxfunc_exchange == 'XNGaussStackedSingularity':
-            auxfunc_exchange = 'XNGaussStackedSingularityExchange'
 
         self.kmf = kmf
         self.kmp = kmp
@@ -829,12 +788,18 @@ class MP2SS:
             self.with_df_ints = False
 
         
-        self.auxfunc_direct_dG0 = options.auxfunc_direct_dG0 or self.auxfunc_direct
+        self.auxfunc_direct_q4 = options.auxfunc_direct_q4 or self.auxfunc_direct
         self.auxfunc_direct_q2 = options.auxfunc_direct_q2 or self.auxfunc_direct
 
         if self.auxfunc_direct not in DIRECT_MODEL_SPECS:
             raise ValueError(f"Invalid auxiliary function: {self.auxfunc_direct}. "
                              f"Must be one of: {sorted(DIRECT_MODEL_SPECS.keys())}")
+        if self.auxfunc_direct_q2 not in Q2_MODEL_SPECS:
+            raise ValueError(f"Invalid q2 auxiliary function: {self.auxfunc_direct_q2}. "
+                             f"Must be one of: {sorted(Q2_MODEL_SPECS.keys())}")
+        if self.auxfunc_direct_q4 not in Q4_MODEL_SPECS:
+            raise ValueError(f"Invalid q4 auxiliary function: {self.auxfunc_direct_q4}. "
+                             f"Must be one of: {sorted(Q4_MODEL_SPECS.keys())}")
         if self.auxfunc_exchange not in EXCHANGE_MODEL_SPECS:
             raise ValueError(f"Invalid auxiliary function: {self.auxfunc_exchange}. "
                              f"Must be one of: {sorted(EXCHANGE_MODEL_SPECS.keys())}")
@@ -868,7 +833,7 @@ class MP2SS:
             pass # Disable fitting
         else:  
             raise ValueError(f"Invalid fit method: {self.fit_method}")
-        self.fit_with_coul_dG0 = options.fit_with_coul_dG0
+        self.fit_with_coul_q4 = options.fit_with_coul_q4
         self.fit_with_coul_q2 = options.fit_with_coul_q2
         self.line_sampling = options.line_sampling
         self.t2_store_type = options.t2_store_type # 'kikjka', 'kikj', or 'ki'
@@ -925,10 +890,10 @@ class MP2SS:
     def _build_direct_fourth_order_correction_config(self):
         return DirectFourthOrderCorrectionConfig(
             cell=self.cell,
-            auxfunc_direct_dG0=self.auxfunc_direct_dG0,
+            auxfunc_direct_q4=self.auxfunc_direct_q4,
             fit_class=self.fit_class,
             fit_method=self.fit_method,
-            fit_with_coul_dG0=self.fit_with_coul_dG0,
+            fit_with_coul_q4=self.fit_with_coul_q4,
             qG_norm_cutoff=self.qG_norm_cutoff,
         )
 
@@ -988,24 +953,24 @@ class MP2SS:
             SqG_full_direct = self.mp2_structure_factor.SqG_full_direct
         if qG_full is None:
             qG_full = self.mp2_structure_factor.qG_full
-        SqG_full_dG0 = self.mp2_structure_factor.SqG_full_dG0 if self.dG0 else None
+        SqG_full_q4 = self.mp2_structure_factor.SqG_full_q4 if self.dG0 else None
 
         self.direct_integral_term_q2 = None
         self.direct_quadrature_term_q2 = None
         self.direct_total_correction_q2 = None
-        self.direct_integral_term_dG0 = None
-        self.direct_quadrature_term_dG0 = None
-        self.direct_total_correction_dG0 = None
-        self.direct_total_correction_q2_dG0 = None
+        self.direct_integral_term_q4 = None
+        self.direct_quadrature_term_q4 = None
+        self.direct_total_correction_q4 = None
+        self.direct_total_correction_q2_q4 = None
 
         if self.correct_q2_q4_separately:
             # Extract the deltaG=0 part as the fourth order O(q^4) portion. Correct q2 and q4 separately.
 
-            if SqG_full_dG0 is None:
-                raise ValueError("SqG_full_dG0 must be available when correct_q2_q4_separately=True")
+            if SqG_full_q4 is None:
+                raise ValueError("SqG_full_q4 must be available when correct_q2_q4_separately=True")
             denominator = np.linalg.norm(qG_full, axis=1) ** 2
             denominator[denominator < 1e-8] = np.inf
-            SqG_full_q2_part = SqG_full_direct - (4 * np.pi) * SqG_full_dG0 / denominator
+            SqG_full_q2_part = SqG_full_direct - (4 * np.pi) * SqG_full_q4 / denominator
 
             second_order_config = self._build_direct_second_order_correction_config()
             fourth_order_config = self._build_direct_fourth_order_correction_config()
@@ -1019,36 +984,36 @@ class MP2SS:
                 nks=self.nks,
             )
             self.direct_fourth_order_correction = MP2DirectFourthOrderSS(fourth_order_config)
-            dG0_result = self.direct_fourth_order_correction.compute_correction(
-                SqG_full_dG0=SqG_full_dG0,
+            q4_result = self.direct_fourth_order_correction.compute_correction(
+                SqG_full_q4=SqG_full_q4,
                 qG_full=qG_full,
                 grids=self.grids,
                 nks=self.nks,
             )
-            if q2_result is None or dG0_result is None:
+            if q2_result is None or q4_result is None:
                 return None
 
             quadrature_term_q2, integral_term_q2, total_direct_correction_q2 = q2_result
-            quadrature_term_dG0, integral_term_dG0, total_direct_correction_dG0 = dG0_result
+            quadrature_term_q4, integral_term_q4, total_direct_correction_q4 = q4_result
             self.direct_quadrature_term_q2 = quadrature_term_q2
             self.direct_integral_term_q2 = integral_term_q2
             self.direct_total_correction_q2 = total_direct_correction_q2
-            self.direct_quadrature_term_dG0 = quadrature_term_dG0
-            self.direct_integral_term_dG0 = integral_term_dG0
-            self.direct_total_correction_dG0 = total_direct_correction_dG0
+            self.direct_quadrature_term_q4 = quadrature_term_q4
+            self.direct_integral_term_q4 = integral_term_q4
+            self.direct_total_correction_q4 = total_direct_correction_q4
 
-            self.direct_quadrature_term = quadrature_term_q2 + quadrature_term_dG0
-            self.direct_integral_term = integral_term_q2 + integral_term_dG0
-            self.direct_total_correction_q2_dG0 = (
-                total_direct_correction_q2 + total_direct_correction_dG0
+            self.direct_quadrature_term = quadrature_term_q2 + quadrature_term_q4
+            self.direct_integral_term = integral_term_q2 + integral_term_q4
+            self.direct_total_correction_q2_q4 = (
+                total_direct_correction_q2 + total_direct_correction_q4
             )
 
             self.direct_correction = MP2DirectFullSS(full_config)
             self.direct_correction.results_title = "Direct Term (Full: 2nd + 4th)"
             self.direct_correction.quadrature_term = self.direct_quadrature_term
             self.direct_correction.integral_term = self.direct_integral_term
-            self.direct_correction.correction = self.direct_total_correction_q2_dG0
-            return self.direct_total_correction_q2_dG0
+            self.direct_correction.correction = self.direct_total_correction_q2_q4
+            return self.direct_total_correction_q2_q4
         else:
 
             self.direct_correction = MP2DirectFullSS(
@@ -1057,7 +1022,7 @@ class MP2SS:
             result = self.direct_correction.compute_direct_correction(
                 SqG_full_direct=SqG_full_direct,
                 qG_full=qG_full,
-                SqG_full_dG0=SqG_full_dG0,
+                SqG_full_q4=SqG_full_q4,
                 grids=self.grids,
                 nks=self.nks,
             )

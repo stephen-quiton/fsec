@@ -95,10 +95,10 @@ class KnownValues(unittest.TestCase):
         "direct_integral_term_q2": -0.02237394483611901,
         "direct_quadrature_term_q2": -0.02000979264030079,
         "direct_total_correction_q2": -0.0023641521958182206,
-        "direct_integral_term_dG0": -0.00677783000626769,
-        "direct_quadrature_term_dG0": -0.00440005709880507,
-        "direct_total_correction_dG0": -0.00237777290746262,
-        "direct_total_correction_q2_dG0": -0.004741925103280841,
+        "direct_integral_term_q4": -0.00677783000626769,
+        "direct_quadrature_term_q4": -0.00440005709880507,
+        "direct_total_correction_q4": -0.00237777290746262,
+        "direct_total_correction_q2_q4": -0.004741925103280841,
         "emp2_uncorr": -0.016508563111247095,
         "edi_uncorr": -0.0311807129223964,
         "exi_uncorr": 0.014672149811149306,
@@ -152,10 +152,10 @@ class KnownValues(unittest.TestCase):
             kmp=self.kmp,
             t2=self.t2,
         )
-        self.assertEqual(mp2ss.options.auxfunc_direct, "XNGauss")
-        self.assertEqual(mp2ss.options.auxfunc_direct_q2, "XNGaussStackedSingularity")
-        self.assertEqual(mp2ss.options.auxfunc_direct_dG0, "XNGauss")
-        self.assertEqual(mp2ss.options.auxfunc_exchange, "XNGaussStackedSingularity")
+        self.assertEqual(mp2ss.options.auxfunc_direct, "Gauss")
+        self.assertEqual(mp2ss.options.auxfunc_direct_q2, "Gauss")
+        self.assertEqual(mp2ss.options.auxfunc_direct_q4, "Gauss")
+        self.assertEqual(mp2ss.options.auxfunc_exchange, "Gauss")
         self.assertEqual(mp2ss.options.qG_norm_cutoff, 4.0)
         self.assertEqual(mp2ss.options.fit_method, "scipy_least_squares")
         self.assertTrue(mp2ss.options.fit_with_coul)
@@ -175,10 +175,10 @@ class KnownValues(unittest.TestCase):
             "direct_integral_term_q2": mp2ss.direct_integral_term_q2,
             "direct_quadrature_term_q2": mp2ss.direct_quadrature_term_q2,
             "direct_total_correction_q2": mp2ss.direct_total_correction_q2,
-            "direct_integral_term_dG0": mp2ss.direct_integral_term_dG0,
-            "direct_quadrature_term_dG0": mp2ss.direct_quadrature_term_dG0,
-            "direct_total_correction_dG0": mp2ss.direct_total_correction_dG0,
-            "direct_total_correction_q2_dG0": mp2ss.direct_total_correction_q2_dG0,
+            "direct_integral_term_q4": mp2ss.direct_integral_term_q4,
+            "direct_quadrature_term_q4": mp2ss.direct_quadrature_term_q4,
+            "direct_total_correction_q4": mp2ss.direct_total_correction_q4,
+            "direct_total_correction_q2_q4": mp2ss.direct_total_correction_q2_q4,
             "emp2_uncorr": mp2ss.emp2_uncorr,
             "edi_uncorr": mp2ss.edi_uncorr,
             "exi_uncorr": mp2ss.exi_uncorr,
