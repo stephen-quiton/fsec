@@ -44,7 +44,9 @@ class SingularitySubtraction(ABC):
 
 from fsec.singularity_subtraction.exxss import ExxSS, ExxSSGaussian, ExxSSQuarticExponential
 from fsec.singularity_subtraction.mp2ss import (
-    DirectCorrectionConfig,
+    DirectFourthOrderCorrectionConfig,
+    DirectFullCorrectionConfig,
+    DirectSecondOrderCorrectionConfig,
     DirectCorrectionResult,
     ExchangeCorrectionConfig,
     ExchangeCorrectionResult,
