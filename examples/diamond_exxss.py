@@ -27,6 +27,7 @@ Method reference:
 """
 
 from pyscf.pbc import df, dft, gto, scf
+from pyscf.lib import logger
 
 from fsec.singularity_subtraction import ExxSS, ExxSSQuarticExponential
 
@@ -60,6 +61,7 @@ kpts = cell.make_kpts(
 
 # PBE0 with Gaussian density fitting.
 kmf_pbe0 = dft.KRKS(cell, kpts)
+kmf_pbe0.verbose = logger.DEBUG
 kmf_pbe0.xc = "PBE0"
 kmf_pbe0.exxdiv = "ewald"
 kmf_pbe0.with_df = df.GDF(cell, kpts).build()

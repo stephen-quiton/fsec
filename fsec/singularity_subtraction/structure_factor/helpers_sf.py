@@ -1,7 +1,56 @@
+from collections import defaultdict
+
 import numpy as np
+from pyscf.lib import logger
 from pyscf.pbc.tools import get_monkhorst_pack_size
 
 from fsec.singularity_subtraction.grids import minimum_image
+
+
+class TimingProfile:
+    """Accumulate PySCF CPU and wall-clock timings for repeated regions."""
+
+    def __init__(self):
+        self._times = defaultdict(lambda: [0.0, 0.0])
+
+    @staticmethod
+    def start():
+        return logger.process_clock(), logger.perf_counter()
+
+    def stop(self, label, start):
+        cpu = logger.process_clock() - start[0]
+        wall = logger.perf_counter() - start[1]
+        self._times[label][0] += cpu
+        self._times[label][1] += wall
+        return cpu, wall
+
+    def summary(self, total_start):
+        total_cpu = logger.process_clock() - total_start[0]
+        total_wall = logger.perf_counter() - total_start[1]
+        summary = {
+            label: {"cpu": values[0], "wall": values[1]}
+            for label, values in self._times.items()
+        }
+        summary["total"] = {"cpu": total_cpu, "wall": total_wall}
+        return summary
+
+    @staticmethod
+    def log_summary(log, summary):
+        total = summary["total"]
+        log.note(
+            "build_structure_factor CPU %.2f sec, wall %.2f sec",
+            total["cpu"], total["wall"],
+        )
+        for label, values in sorted(
+                ((key, value) for key, value in summary.items() if key != "total"),
+                key=lambda item: item[1]["wall"], reverse=True):
+            cpu_fraction = 100.0 * values["cpu"] / total["cpu"] if total["cpu"] else 0.0
+            wall_fraction = 100.0 * values["wall"] / total["wall"] if total["wall"] else 0.0
+            log.note(
+                "  %-36s CPU %9.2f sec (%5.1f%%), wall %9.2f sec (%5.1f%%)",
+                label, values["cpu"], cpu_fraction,
+                values["wall"], wall_fraction,
+            )
 
 
 def build_uKpts(kmf, kpts, mo_coeff_kpts, NsCell=None, rptGrid3D=None, nbands=None):

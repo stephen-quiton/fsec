@@ -1,5 +1,4 @@
 from abc import ABC, abstractmethod
-import time
 from fsec.singularity_subtraction.grids import minimum_image, MP2SSGrids
 from pyscf.pbc.tools import get_monkhorst_pack_size
 import scipy
@@ -18,7 +17,7 @@ from pyscf.lib.numpy_helper import einsum as pyscf_einsum
 
 
 from fsec.singularity_subtraction.structure_factor import StructureFactor
-from fsec.singularity_subtraction.structure_factor.helpers_sf import build_uKpts
+from fsec.singularity_subtraction.structure_factor.helpers_sf import build_uKpts, TimingProfile
 
 class MP2StructureFactor(StructureFactor):
     def __init__(self, kmf, kmp, t2=None, N_local=None, sq_ke_cutoff=None, qG_cutoff=None, relative_shift=0.0, **kwargs):
@@ -65,7 +64,7 @@ class MP2StructureFactor(StructureFactor):
                                update_class=True, qG_cutoff=None, dG0=False,
                                grids=None, mo_coeff_kpts1=None, mo_coeff_kpts2=None, mo_coeff_kpts3=None, 
                                kmf=None, t2=None, mo_energy=None, mo_e_o=None, mo_e_v=None, mo_e_v_b=None,
-                               t2_store_type=None, Lov=None, Lov_b=None, kmp=None):
+                               t2_store_type=None, Lov=None, Lov_b=None, kmp=None, verbose=None):
         """
         Build the MP2 structure factor, either direct term, exchange term, or both.
 
@@ -87,6 +86,9 @@ class MP2StructureFactor(StructureFactor):
         grids : MP2SSGrids, optional
             The grids object to use for the structure factor calculation.
             If None, uses the grids constructed from the class grid setup.
+        verbose : int or pyscf.lib.logger.Logger, optional
+            PySCF verbosity level or logger used for the timing summary. If
+            omitted, the verbosity and output stream are inherited from kmp.
         Returns
         -------
         SqG_full_direct : np.ndarray
@@ -107,18 +109,24 @@ class MP2StructureFactor(StructureFactor):
             kmf = self.kmf
         if kmp is None:
             kmp = self.kmp
+
+        log = logger.new_logger(kmp, verbose)
+        profile = TimingProfile()
+        total_t0 = profile.start()
         
         if not direct and not exchange and not dG0:
             raise ValueError("Either direct or exchange or dG0 must be requested")
         
-        build_SqG_start_time = time.time()
-
+        phase_t0 = profile.start()
         mo_coeff_padded, mo_energy_padded = kmp2._add_padding(
             kmp, kmp.mo_coeff, kmp.mo_energy)
+        profile.stop("MO padding", phase_t0)
 
         if grids is None:
+            phase_t0 = profile.start()
             self.set_grids(min_fit_points=self.min_points)
             grids = self.grids
+            profile.stop("grid construction", phase_t0)
 
         if qG_full is None:
             qG_full = grids.qG_grid_local
@@ -162,20 +170,21 @@ class MP2StructureFactor(StructureFactor):
             if t2_store_type == 'kikjka':
                 # NOTE: t2 MUST be in the kikjq format
                 if self.t2 is None:
-                    time_start = time.time()
+                    phase_t0 = profile.start()
                     t2 = self.compute_t2_amplitudes(self.kmp, self.kmp.mo_energy, self.kmp.mo_coeff) # nkpts, nkpts, nkpts, nocc, nocc, nvir, nvir
-                    time_end = time.time()
-                    print(f"Time to compute t2: {time_end - time_start} s")
+                    profile.stop("full t2 construction", phase_t0)
                 else:
                     t2 = self.t2
 
             else:
                 if with_df_ints:
+                    phase_t0 = profile.start()
                     Lov = kmp2._init_mp_df_eris(kmp) if Lov is None else Lov
                     if grids.kGrid3_neq_kGrid2 and Lov_b is None:
                         raise NotImplementedError("Lov_b is not implemented for kGrid3_neq_kGrid2")
                     elif Lov_b is None:
                         Lov_b = Lov.copy()
+                    profile.stop("DF integral initialization", phase_t0)
                 print("Computing t2 on the fly for each q+G point.")
                 t2_required = False # we compute t2 on the fly for each q+G point.
                 
@@ -189,7 +198,7 @@ class MP2StructureFactor(StructureFactor):
         nbands = self.kmp.nmo
         fao2mo = self.kmp._scf.with_df.ao2mo
         nvir = nbands - nocc
-        time_start = time.time()
+        phase_t0 = profile.start()
         
         kgrids_equal = kGrid1 is kGrid2 or np.allclose(kGrid1, kGrid2, atol=1e-8)
         mo_coeffs_equal = mo_coeff_kpts1 is mo_coeff_kpts2 or np.allclose(mo_coeff_kpts1, mo_coeff_kpts2, atol=1e-8)
@@ -203,8 +212,7 @@ class MP2StructureFactor(StructureFactor):
             uKpts_j = build_uKpts(kmf, kGrid1, mo_coeff_kpts1, rptGrid3D=rptGrid3D, nbands=nbands)
             uKpts_a = build_uKpts(kmf, kGrid2, mo_coeff_kpts2, rptGrid3D=rptGrid3D, nbands=nbands)
             uKpts_b = build_uKpts(kmf, kGrid3, mo_coeff_kpts3, rptGrid3D=rptGrid3D, nbands=nbands) # SJQ checked
-        time_end = time.time()
-        print(f"Time to build uKpts: {time_end - time_start} s")
+        profile.stop("uKpts construction", phase_t0)
         
         uKpts_i = uKpts_i[:,:nocc,:]
         uKpts_j = uKpts_j[:,:nocc,:]
@@ -234,21 +242,11 @@ class MP2StructureFactor(StructureFactor):
         print("SqG direct MEM USAGE (KB) IS: {:.3f}".format(SqG_full_direct.nbytes / (1024)))
         print("SqG exchange MEM USAGE (KB) IS: {:.3f}".format(SqG_full_exchange.nbytes / (1024)))
 
-        matmul_time = 0
-        u1u2_time = 0
-        locate_k2_time = 0
         kgrid2_tree = KDTree(kGrid2)
         kgrid3_tree = KDTree(kGrid3)
         num_equiv_qG = 0
-        total_einsum_time = 0
-        precompute_total_time = 0      
-        np_dot_time = 0 
-        t2_time = 0
-        
-        precompute_total_time += time.time() - build_SqG_start_time
 
-            
-        precompute_start_time = time.time()
+        phase_t0 = profile.start()
         qG_full = qG_full[np.linalg.norm(qG_full, axis=1) < qG_cutoff + 1e-8,:]
         SqG_full_direct = np.zeros(qG_full.shape[0], dtype=np.float64)
         SqG_full_exchange = np.zeros(qG_full.shape[0], dtype=np.float64)
@@ -306,7 +304,7 @@ class MP2StructureFactor(StructureFactor):
                 eijab_full[qi,:,:,:,:,:,:] = 1/(eijab)
                 
         contract_expression_rijab = 'mia,nbj->mnijab'
-        precompute_total_time += time.time()-precompute_start_time
+        profile.stop("qG/k-point precomputation", phase_t0)
             
         nqG_full = qG_full.shape[0]
         interval = nqG_full // 10
@@ -316,15 +314,16 @@ class MP2StructureFactor(StructureFactor):
             qg_tree = scipy.spatial.KDTree(qG_full)
             _, inversion_partner = qg_tree.query(-qG_full, distance_upper_bound=1e-8)
 
+        loop_t0 = profile.start()
         for qG in range(qG_full.shape[0]):
             if qG % interval == 0:
                 print(f"Progress: {qG/nqG_full*100:.2f}%")
-                print(f"Time: {time.time()-time_start:.2f}s")
+                print(f"Wall time: {logger.perf_counter()-total_t0[1]:.2f}s")
                 
             # First, see if S(-qG) has already been computed
             # precompute all idx_kpta and idx_kptb for all kpts
             qGpt = qG_full[qG, :]
-            precompute_start_time = time.time()
+            region_t0 = profile.start()
             if self.sq_inversion_symm and qG > 1:
                 equiv_qG_index = inversion_partner[qG]
                 if equiv_qG_index < qG:
@@ -335,13 +334,15 @@ class MP2StructureFactor(StructureFactor):
                         SqG_full_exchange[qG] = SqG_full_exchange[equiv_qG_index]
                     if dG0:
                         SqG_full_q4[qG] = SqG_full_q4[equiv_qG_index]
-                    precompute_total_time += time.time()-precompute_start_time
+                    profile.stop("inversion-symmetry reuse", region_t0)
                     continue
+            profile.stop("inversion-symmetry lookup", region_t0)
                 
 
             
 
             # Find qi index
+            region_t0 = profile.start()
             qi = qi_map[qG]
             qpt = qGrid[qi]
             if exchange and t2_store_type == 'kikjka':
@@ -366,24 +367,22 @@ class MP2StructureFactor(StructureFactor):
             # Precompute exp_term for kGdiffas and kGdiffbs
             exp_term_as = np.exp(-1j * (rptGrid3D @ kGdiffas.T)).T
             exp_term_bs = np.exp(1j * (rptGrid3D @ kGdiffbs.T)).T
-            
-            precompute_time = time.time()
-            precompute_total_time += precompute_time-precompute_start_time
+            profile.stop("per-qG index/phase setup", region_t0)
             
             # Build pair densities, rho_ikiaka and rho_jkjbkb
-            u1u2_reset = time.time()
+            region_t0 = profile.start()
             ua_ki = uKpts_a[kas_at_qi] * exp_term_as[:,None,:] # nkpts x nvir x nG
-            u1u2_time += time.time()-u1u2_reset
-            matmul_reset = time.time()
+            profile.stop("pair-density elementwise products", region_t0)
+            region_t0 = profile.start()
             rho_ia_full = conj_uKpts_i @ ua_ki.transpose(0,2,1) # nkpts x nocc x nvir
-            matmul_time += time.time()-matmul_reset
+            profile.stop("pair-density matrix multiply", region_t0)
                 
-            u1u2_reset = time.time()
+            region_t0 = profile.start()
             conj_ub_kj = np.conj(uKpts_b[kbs_at_qi]) * exp_term_bs[:,None,:] # nkpts x nvir x nG
-            u1u2_time += time.time()-u1u2_reset
-            matmul_reset = time.time()
+            profile.stop("pair-density elementwise products", region_t0)
+            region_t0 = profile.start()
             rho_jb_full = conj_ub_kj @ uKpts_j_T # nkpts x nvir x nocc
-            matmul_time += time.time()-matmul_reset
+            profile.stop("pair-density matrix multiply", region_t0)
         
 
             if t2_store_type == 'ki' and not t2_given:
@@ -397,6 +396,7 @@ class MP2StructureFactor(StructureFactor):
 
                 for ki in range(nkpts):
                     # Build ERIs with DF integrals
+                    region_t0 = profile.start()
                     ka = kas_at_qi[ki]
                     for kj in range(nkpts):
                         kb = kbs_at_qi[kj]
@@ -448,35 +448,39 @@ class MP2StructureFactor(StructureFactor):
                                     (kGrid1[ki],kGrid3[kb],kGrid1[kj],kGrid2[ka]),
                                     compact=False
                                 ).reshape(nocc,nvir,nocc,nvir).transpose(0,2,1,3) / nkpts              
+                    profile.stop("ERI/DF construction (ki path)", region_t0)
                     # Build eijab for direct
 
 
                     # Compute structure factor contribution
-                    
+                    region_t0 = profile.start()
                     rijab_ki = np.einsum('ia,nbj->nijab', rho_ia_full[ki], rho_jb_full.conj()) * dvol**2 / (nkpts * omega_cell)
+                    profile.stop("rijab construction (ki path)", region_t0)
                     if direct or dG0:
+                        region_t0 = profile.start()
                         eijab_ki = mo_e_o[ki,None,:,None,None,None] + mo_e_o[:,None,:,None,None] \
                             -mo_e_v[ka,None,None,None,:,None] - mo_e_v_b[kbs_at_qi,None,None,None,:]
+                        profile.stop("energy denominators (ki path)", region_t0)
 
-                    if direct:  
+                    if direct:
+                        region_t0 = profile.start()
                         t2_ki = np.conj(oovv_ij / eijab_ki) # kj, i, j, a, b
-                        np_dot_reset = time.time()
                         temp_SqG_k = 2 * pyscf_einsum('nijab,nijab->', rijab_ki, t2_ki) 
                         SqG_full_direct[qG] += temp_SqG_k.real / nkpts
-                        np_dot_time += time.time()-np_dot_reset
+                        profile.stop("direct contraction (ki path)", region_t0)
                     if exchange:
+                        region_t0 = profile.start()
                         eijba_ki = mo_e_o[ki,None,:,None,None,None] + mo_e_o[:,None,:,None,None] \
                             -mo_e_v_b[kbs_at_qi,None,None,:,None] - mo_e_v[ka,None,None,None,None,:]
                         t2_ki_x = np.conj(oovv_ji / eijba_ki) # kj, i, j, a, b
-                        np_dot_reset = time.time()
                         temp_SqG_k = - pyscf_einsum('nijab,nijba->', rijab_ki, t2_ki_x) 
                         SqG_full_exchange[qG] += temp_SqG_k.real / nkpts
-                        np_dot_time += time.time()-np_dot_reset
+                        profile.stop("exchange contraction (ki path)", region_t0)
                     if dG0:
-                        np_dot_reset = time.time()
+                        region_t0 = profile.start()
                         temp_SqG_k =  2 * np.sum(np.abs(rijab_ki)**2 / eijab_ki)
                         SqG_full_q4[qG] += temp_SqG_k.real / nkpts
-                        np_dot_time += time.time()-np_dot_reset
+                        profile.stop("dG0 contraction (ki path)", region_t0)
 
                 oovv_ij = None
                 oovv_ji = None
@@ -484,49 +488,53 @@ class MP2StructureFactor(StructureFactor):
 
             else:
                 # O(Nk^2) or O(Nk^3) memory scaling pathway
-                einsum_time = time.time()
+                region_t0 = profile.start()
                 rijab = np.einsum(contract_expression_rijab,rho_ia_full,rho_jb_full.conj(),optimize=True)
                 rijab = rijab.ravel()
-                total_einsum_time += time.time()-einsum_time
+                profile.stop("rijab tensor contraction", region_t0)
                 
                 if direct:
 
                     if t2_store_type == 'kikj' and not t2_given:
-                        t2_start_time = time.time()
+                        region_t0 = profile.start()
                         t2_qi = self.compute_t2_amplitudes(self.kmp, self.kmp.mo_energy, self.kmp.mo_coeff, qGrid, qGrid_sample=qpt.reshape(1,3),
                                                             skip_if_no_qpt=True, mode='direct',Lov=Lov, verbose=logger.NOTE)
                         t2_qi = t2_qi.transpose(2,0,1,3,4,5,6)
                         t2_qi = t2_qi[0]
-                        t2_time += time.time()-t2_start_time
-                    np_dot_reset = time.time()
+                        profile.stop("direct t2 construction on the fly", region_t0)
+                    region_t0 = profile.start()
                     temp_SqG_k =2/(omega_cell*nkpts) * np.dot(rijab, t2_qi.ravel()) * dvol**2 #ORIGINAL 3/3/26
                     # temp_SqG_k =2/(omega_cell*nkpts) * pyscf_einsum('i,i->', rijab, t2_qi.ravel()) * dvol**2 #NEW 3/3/26
                     
                     SqG_full_direct[qG] += temp_SqG_k.real / nkpts
-                    np_dot_time += time.time()-np_dot_reset
+                    profile.stop("direct final contraction", region_t0)
                 if exchange:
+                    region_t0 = profile.start()
                     t2_qpi = np.zeros((nkpts,nkpts,nocc,nvir,nocc,nvir), dtype=np.complex128)
+                    profile.stop("exchange t2 allocation", region_t0)
                     if t2_store_type == 'kikj' and not t2_given:
-                        t2_start_time = time.time()
+                        region_t0 = profile.start()
                         t2_qpi = self.compute_t2_amplitudes(self.kmp, self.kmp.mo_energy, self.kmp.mo_coeff, qGrid, qGrid_sample=qpt.reshape(1,3),
                                                             skip_if_no_qpt=True, mode='exchange',Lov=Lov, verbose=logger.NOTE)
                         t2_qpi = t2_qpi.transpose(2,0,1,3,4,5,6) # qpi, ki, kj, i, j, a, b
                         t2_qpi = t2_qpi[0]
-                        t2_time += time.time()-t2_start_time
+                        profile.stop("exchange t2 construction on the fly", region_t0)
                     else:
+                        region_t0 = profile.start()
                         kii, kjj = np.indices((nkpts, nkpts))
                         t2_qpi = t2[qpis, kii, kjj]
+                        profile.stop("exchange t2 gather", region_t0)
                     
-                    np_dot_reset = time.time()
-
+                    region_t0 = profile.start()
                     t2_qpi = t2_qpi.transpose(0,1,2,3,5,4).ravel()
                     temp_SqG_k_x = -1/(omega_cell*nkpts) * np.dot(rijab, t2_qpi) * dvol**2 #ORIGINAL 3/3/26
                     # temp_SqG_k_x = -1/(omega_cell*nkpts) * pyscf_einsum('i,i->', rijab, t2_qpi) * dvol**2 #NEW 3/3/26
                     
                     SqG_full_exchange[qG] += temp_SqG_k_x.real / nkpts
-                    np_dot_time += time.time()-np_dot_reset
+                    profile.stop("exchange final contraction", region_t0)
                 
                 if dG0:
+                    region_t0 = profile.start()
                     if t2_store_type == 'kikj':
                         ka_at_qi = kas[qi]
                         kb_at_qi = kbs[qi]
@@ -535,8 +543,9 @@ class MP2StructureFactor(StructureFactor):
                         eijab = 1/(eijab)
                     else:
                         eijab = eijab_full[qi]
+                    profile.stop("dG0 denominator setup", region_t0)
 
-                    np_dot_reset = time.time()
+                    region_t0 = profile.start()
                     # rijab_ovr_e =  np.einsum(contract_expression_q4,rho_ia_full,rho_jb_full.conj(),np.sqrt(np.abs(eijab)),optimize=True
                     rijab_ovr_e = rijab * np.sqrt(np.abs(eijab)).ravel()
 
@@ -546,27 +555,17 @@ class MP2StructureFactor(StructureFactor):
                     # temp_SqG_k_q4 = -2 * np.dot(rijab_ovr_e, rijab_ovr_e.conj()) #ORIGINAL 3/3/26
                     temp_SqG_k_q4 = -2 * pyscf_einsum('i,i->', rijab_ovr_e, rijab_ovr_e.conj()) #NEW 3/3/26
                     SqG_full_q4[qG] += temp_SqG_k_q4.real / nkpts
-                    np_dot_time += time.time()-np_dot_reset
+                    profile.stop("dG0 final contraction", region_t0)
+        profile.stop("main qG loop (inclusive)", loop_t0)
 
-
-
-
-        build_SqG_end_time = time.time()
-        SqG_time = build_SqG_end_time - build_SqG_start_time
-        print(f"Time to build SqG: {SqG_time} s")
-        print("    Time to compute rho12: ", u1u2_time)
-        print("    Time to compute matmul: ", matmul_time)
-        print("    Time to locate k2: ", locate_k2_time)
-        print("    Time to compute einsum: ", total_einsum_time)
-        print("    Time to compute np.dot: ", np_dot_time)
-        print("    Time to precompute: ", precompute_total_time)
-        print("    Time to compute t2 on the fly: ", t2_time)
-        print("Number of equivalent qG points: ", num_equiv_qG)
+        log.note("Number of equivalent qG points: %d", num_equiv_qG)
         if update_class:
+            phase_t0 = profile.start()
             self.SqG_full_direct = SqG_full_direct
             self.SqG_full_exchange = SqG_full_exchange
             self.SqG_full_q4 = SqG_full_q4
             self.qG_full = qG_full
+            profile.stop("class result update", phase_t0)
                 
         # Find zero index
         norms = np.linalg.norm(qG_full, axis=1)
@@ -583,6 +582,8 @@ class MP2StructureFactor(StructureFactor):
             'SqG_full_q4': SqG_full_q4,
             'qG_full': qG_full,
         }
+        self.last_build_timings = profile.summary(total_t0)
+        profile.log_summary(log, self.last_build_timings)
         return result_dict
                 
             

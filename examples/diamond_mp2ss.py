@@ -27,6 +27,7 @@ Method reference:
 """
 
 from pyscf.pbc import df, gto, mp, scf
+from pyscf.lib import logger
 
 from fsec.singularity_subtraction import MP2SS
 
@@ -56,11 +57,13 @@ kpts = cell.make_kpts(
 
 # Generate the orbitals and retain the KMP2 amplitudes needed by MP2SS.
 kmf = scf.KRHF(cell, kpts)
+kmf.verbose = logger.DEBUG
 kmf.exxdiv = "ewald"
 kmf.with_df = df.GDF(cell, kpts).build()
 kmf.kernel()
 
 kmp = mp.KMP2(kmf)
+kmp.verbose = logger.DEBUG
 kmp.with_df_ints = True
 e_corr, t2 = kmp.kernel(with_t2=True)
 
