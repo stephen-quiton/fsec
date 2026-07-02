@@ -182,56 +182,91 @@ class KnownValues(unittest.TestCase):
         cls.SqG_full_q4 = cls.REFERENCE_MP2_Q4_20
         cls.SqG_full_exchange = cls.REFERENCE_MP2_EXCHANGE_20
 
-    def _assert_parameters(self, fit_cls, model, input_data, output_data, expected, **fit_kwargs):
-        fit_method = fit_cls(model, fit_with_coul=False)
-        fitted = fit_method.fit_model(input_data, output_data, **fit_kwargs)
+    def _assert_fitted_parameters(self, fitted, expected):
         self.assertEqual(len(fitted), len(expected))
         for actual, reference in zip(fitted, expected):
             self.assertAlmostEqual(actual, reference, places=3)
 
+    def _assert_parameters_with_coul(
+        self, fit_cls, model, input_data, output_data, expected, **fit_kwargs
+    ):
+        fit_method = fit_cls(model, fit_with_coul=True)
+        fitted = fit_method.fit_model(input_data, output_data, **fit_kwargs)
+        self._assert_fitted_parameters(fitted, expected)
+
+    def _assert_parameters(
+        self,
+        fit_cls,
+        model,
+        input_data,
+        output_data,
+        expected,
+        expected_with_coul,
+        **fit_kwargs,
+    ):
+        fit_method = fit_cls(model, fit_with_coul=False)
+        fitted = fit_method.fit_model(input_data, output_data, **fit_kwargs)
+        self._assert_fitted_parameters(fitted, expected)
+        self._assert_parameters_with_coul(
+            fit_cls,
+            model,
+            input_data,
+            output_data,
+            expected_with_coul,
+            **fit_kwargs,
+        )
+
     def test_exx_scipy_minimize_contracted_gaussian(self):
         model = ContractedGaussianModel(num_gaussians=1, isotropic=True)
         expected = [1.0, 1.0e-8]
+        expected_with_coul = [1.0, 1.0e-8]
         self._assert_parameters(
             ExxScipyMinimize,
             model,
             self.exx_qG,
             self.exx_SqG,
             expected,
+            expected_with_coul,
         )
 
     def test_exx_scipy_least_squares_contracted_gaussian(self):
         model = ContractedGaussianModel(num_gaussians=1, isotropic=True)
         expected = [1.0, 0.6485758873718301]
+        expected_with_coul = [1.0, 0.64351473]
         self._assert_parameters(
             ExxScipyLeastSquares,
             model,
             self.exx_qG,
             self.exx_SqG,
             expected,
+            expected_with_coul,
         )
 
     def test_exx_scipy_minimize_quartic_exponential(self):
         model = QuarticExponentialModel(num_primitives=1)
         expected = [1.0, 0.7388025253272993, 3.0887137273423044, 1.4083534745912776]
+        expected_with_coul = [1.0, 0.81100787, 3.04164405, 1.272494]
         self._assert_parameters(
             ExxScipyMinimize,
             model,
             self.exx_qG,
             self.exx_SqG,
             expected,
+            expected_with_coul,
             force_positive_params=True,
         )
 
     def test_exx_scipy_least_squares_quartic_exponential(self):
         model = QuarticExponentialModel(num_primitives=1)
         expected = [1.0, 2.1081797177657133, 2.7564722224352383, 0.40869039302204624]
+        expected_with_coul = [1.0, 2.10855771, 2.75644022, 0.40859361]
         self._assert_parameters(
             ExxScipyLeastSquares,
             model,
             self.exx_qG,
             self.exx_SqG,
             expected,
+            expected_with_coul,
             force_positive_params=True,
         )
 
@@ -243,12 +278,14 @@ class KnownValues(unittest.TestCase):
             deltaGs=self.mp2_deltaGs,
         )
         expected = [2.7391986894019372e-05, 0.8193662600962808]
+        expected_with_coul = [2.86031846e-05, 0.813529376]
         self._assert_parameters(
             MP2ScipyMinimize,
             model,
             self.mp2_qG,
             self.SqG_full_direct,
             expected,
+            expected_with_coul,
             fit_multipliers=[1.0e4, 1.0],
         )
 
@@ -260,35 +297,41 @@ class KnownValues(unittest.TestCase):
             deltaGs=self.mp2_deltaGs,
         )
         expected = [2.7391967036276372e-05, 0.81936636144651]
+        expected_with_coul = [2.86031466e-05, 0.813529570]
         self._assert_parameters(
             MP2ScipyLeastSquares,
             model,
             self.mp2_qG,
             self.SqG_full_direct,
             expected,
+            expected_with_coul,
         )
 
     def test_mp2_scipy_minimize_dg0_xngauss(self):
         model = XNGauss(parameters=[1.0e-4, 1.0], negative=True, deg=4)
         expected = [0.5696568538141716, 0.20509585399570057]
+        expected_with_coul = [0.60520757, 0.20462117]
         self._assert_parameters(
             MP2ScipyMinimize,
             model,
             self.mp2_qG,
             self.SqG_full_q4,
             expected,
+            expected_with_coul,
             fit_multipliers=[1.0e4, 1.0],
         )
 
     def test_mp2_scipy_least_squares_dg0_xngauss(self):
         model = XNGauss(parameters=[1.0e-4, 1.0], negative=True, deg=4)
         expected = [1.3088397673385366e-05, 0.48253452987121476]
+        expected_with_coul = [1.31522978e-05, 0.482114944]
         self._assert_parameters(
             MP2ScipyLeastSquares,
             model,
             self.mp2_qG,
             self.SqG_full_q4,
             expected,
+            expected_with_coul,
         )
 
     def test_mp2_scipy_minimize_exchange_xngauss_stacked_singularity_exchange(self):
@@ -296,12 +339,14 @@ class KnownValues(unittest.TestCase):
             parameters=[1.0e-4, 1.0], q2s=self.mp2_qG, dvol=1.0
         )
         expected = [1.7642180397497834e-05, 0.8193663363312604]
+        expected_with_coul = [1.82902313e-05, 0.813529541]
         self._assert_parameters(
             MP2ScipyMinimize,
             model,
             self.mp2_qG,
             self.SqG_full_exchange,
             expected,
+            expected_with_coul,
             fit_multipliers=[1.0e4, 1.0],
         )
 
@@ -310,12 +355,14 @@ class KnownValues(unittest.TestCase):
             parameters=[1.0e-4, 1.0], q2s=self.mp2_qG, dvol=1.0
         )
         expected = [1.7642177723423226e-05, 0.8193663658499301]
+        expected_with_coul = [1.82902301e-05, 0.813529559]
         self._assert_parameters(
             MP2ScipyLeastSquares,
             model,
             self.mp2_qG,
             self.SqG_full_exchange,
             expected,
+            expected_with_coul,
         )
 
 
