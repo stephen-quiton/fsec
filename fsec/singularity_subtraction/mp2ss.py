@@ -68,8 +68,8 @@ class MP2SSOptions:
     sq_inversion_symm: bool = True
     sq_ke_cutoff: object = None
     fit_method: object = 'scipy_least_squares'
-    fit_with_coul_q4: bool = False
-    fit_with_coul_q2: bool = False
+    fit_with_coul_q4: bool = True
+    fit_with_coul_q2: bool = True
     line_sampling: bool = False
     t2_store_type: str = 'kikjka'
     correct_q2_q4_separately: bool = True
