@@ -9,6 +9,7 @@ from fsec.singularity_subtraction import SingularitySubtraction
 from pyscf.pbc import df
 from pyscf import lib
 import numpy as np
+from numpy.typing import ArrayLike
 
 
 def convert_t2_to_kikjq_format(t2,kGrid1,qGrid,cell,kGrid2=None):
@@ -53,21 +54,87 @@ def convert_t2_to_kikjq_format(t2,kGrid1,qGrid,cell,kGrid2=None):
 
 @dataclass(frozen=True)
 class MP2SSOptions:
-    """User-facing optional controls for MP2SS."""
+    """User-facing controls for :class:`MP2SS`.
+
+    Parameters
+    ----------
+    auxfunc_direct
+        Model used when fitting the complete direct contribution. Supported
+        values are ``"Gauss"`` and ``"ExpAbs"``. NOTE: Ignored when
+        correct_q2_q4_separately is enabled, in which case auxfunc_direct_q2
+        and auxfunc_direct_q4 are used instead.
+    auxfunc_direct_q2
+        Model used for the second-order direct contribution when
+        ``correct_q2_q4_separately`` is enabled. A false-like value falls back
+        to ``auxfunc_direct``. Supported values are ``"Gauss"`` and
+        ``"ExpAbs"``. NOTE: Ignored when correct_q2_q4_separately is disabled,
+        in which case auxfunc_direct is used instead.
+    auxfunc_direct_q4
+        Model used for the fourth-order direct contribution when
+        ``correct_q2_q4_separately`` is enabled. A false-like value falls back
+        to ``auxfunc_direct``. Supported values are ``"Gauss"``,
+        ``"Exponential"``, ``"QuarticExponential"``, ``"ExpAbs"``, and
+        ``"ExpAbs2"``. NOTE: Ignored when correct_q2_q4_separately is disabled,
+        in which case auxfunc_direct is used instead.
+    auxfunc_exchange
+        Model used when fitting the exchange contribution. Supported values
+        are ``"Gauss"``, ``"Exponential"``, ``"QuarticExponential"``,
+        ``"ExpAbs"``, and ``"ExpAbs2"``.
+    fit_with_coul
+        Include the Coulomb kernel in fits of the complete direct and exchange
+        contributions. Ignored for direct if ``correct_q2_q4_separately`` is
+        enabled.
+    N_local
+        Number of local reciprocal-grid cells along each lattice direction.
+        May be a scalar or a three-element array-like. If omitted,
+        ``kmf.cell.mesh`` is used; ``sq_ke_cutoff`` overrides this value.
+    qG_norm_cutoff
+        Maximum norm of q+G vectors included in structure-factor construction
+        and model fitting, in the cell's reciprocal-space units. ``None``
+        delegates cutoff selection to the grid builder where supported.
+    min_points
+        Minimum number of q+G fitting samples used when a cutoff must be
+        selected automatically.
+    sq_inversion_symm
+        Use inversion symmetry when constructing the MP2 structure factor.
+    sq_ke_cutoff
+        Kinetic-energy cutoff used to derive the structure mesh as well as the real-space
+        grid density used to compute each S(q+G). When provided, it overrides ``N_local``.
+    fit_method
+        Optimizer used for model fitting: ``"scipy_least_squares"`` or
+        ``"scipy_minimize"``. Use ``None`` or ``"Disabled"`` to disable
+        fitting.
+    fit_with_coul_q4
+        Include the fourth-order Coulomb factor in the q4 direct fit.
+    fit_with_coul_q2
+        Include the second-order Coulomb factor in the q2 direct fit.
+    line_sampling
+        Sample q+G only along reciprocal-lattice directions when building the
+        structure factor.
+    t2_store_type
+        Storage strategy for MP2 amplitudes. Supported values are
+        ``"kikjka"``, ``"kikj"``, and ``"ki"``, ranging from largest to smallest
+        memory footprint.
+    correct_q2_q4_separately
+        Fit and correct the second- and fourth-order direct contributions
+        independently. If false, fit the complete direct contribution once.
+
+    Notes
+    -----
+    Instances are immutable. Pass an instance through ``MP2SS(options=...)``;
+    keyword arguments supplied alongside it create a modified copy.
+    """
     auxfunc_direct: str = 'Gauss'
-    auxfunc_direct_q2: object = 'Gauss'
-    auxfunc_direct_q4: object = 'Gauss'
+    auxfunc_direct_q2: str = 'Gauss'
+    auxfunc_direct_q4: str = 'Gauss'
     auxfunc_exchange: str = 'Gauss'
     fit_with_coul: bool = True
-    truncated_qG_grid: bool = True
-    qG_grid_type: str = 'truncated'
-    initial_guess: object = None
-    N_local: object = None
-    qG_norm_cutoff: object = 4.0
+    N_local: ArrayLike = None
+    qG_norm_cutoff: float = 4.0
     min_points: int = 6
     sq_inversion_symm: bool = True
-    sq_ke_cutoff: object = None
-    fit_method: object = 'scipy_least_squares'
+    sq_ke_cutoff: float = None
+    fit_method: str = 'scipy_least_squares'
     fit_with_coul_q4: bool = True
     fit_with_coul_q2: bool = True
     line_sampling: bool = False
@@ -81,9 +148,9 @@ class DirectFullCorrectionConfig:
     cell: object
     auxfunc_direct: str
     fit_class: object
-    fit_method: object
+    fit_method: str
     fit_with_coul: bool
-    qG_norm_cutoff: object
+    qG_norm_cutoff: float
 
 
 @dataclass(frozen=True)
@@ -806,12 +873,6 @@ class MP2SS:
 
         # Fit Settings (same as ExxSS)
         self.fit_with_coul = options.fit_with_coul
-        truncated_qG_grid = options.truncated_qG_grid
-        self.qG_grid_type = options.qG_grid_type
-        if self.qG_grid_type == 'local' or self.qG_grid_type == 'full':
-            assert truncated_qG_grid is False, "Requesting local or full qG grid, need truncated_qG_grid False"
-
-        self.initial_guess = options.initial_guess
         self.N_local = options.N_local if options.N_local is not None else self.cell.mesh
 
         # Structure factor build settings
