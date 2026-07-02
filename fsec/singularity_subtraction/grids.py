@@ -148,7 +148,7 @@ class ExxSSGrids(SSGrids):
         for i in range(B_over_nk.shape[0]):
             B_i = B_over_nk[i, :]
             B_i_norm = np.linalg.norm(B_i)
-            npoints = int(np.floor(qG_norm_cutoff / B_i_norm)) - 1
+            npoints = max(0, int(np.floor(qG_norm_cutoff / B_i_norm)) - 1)
             qG_full_i = np.zeros((npoints, 3))
             for j in range(npoints):
                 qG_full_i[j, :] = (j + 1) * B_i

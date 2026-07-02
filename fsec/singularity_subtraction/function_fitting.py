@@ -279,7 +279,15 @@ class ExxScipyLeastSquares(FitMethod):
 
 
         abs_diff = self.abs_diff_set_c0 if is_contraction else self.abs_diff
-        result = least_squares(abs_diff, input_initial_guess, args=(input_data, output_data), bounds=bounds, verbose=2)
+        max_nfev = 1000 * self.model_function.num_params
+        result = least_squares(
+            abs_diff,
+            input_initial_guess,
+            args=(input_data, output_data),
+            bounds=bounds,
+            verbose=2,
+            max_nfev=max_nfev,
+        )
         if not result.success:
             print("WARNING: Fitting failed. Result: ", result)
             raise ValueError("Fitting failed. Result: ", result)
