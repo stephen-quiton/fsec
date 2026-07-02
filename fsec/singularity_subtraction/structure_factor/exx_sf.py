@@ -59,6 +59,7 @@ class ExxStructureFactor(StructureFactor):
         phase_t0 = profile.start()
         uKpts1 = build_uKpts(kmf, kGrid1, self.mo_coeff_kpts1, rptGrid3D=rptGrid3D, nbands=nocc)
         uKpts2 = build_uKpts(kmf, kGrid2, self.mo_coeff_kpts2, rptGrid3D=rptGrid3D, nbands=nocc)
+        conj_uKpts1 = np.conj(uKpts1)
         profile.stop("uKpts construction", phase_t0)
 
         phase_t0 = profile.start()
@@ -106,24 +107,18 @@ class ExxStructureFactor(StructureFactor):
             exp_terms = np.exp(-1j * (rptGrid3D @ kGdiffs.T)).T
             profile.stop("per-qG index/phase setup", region_t0)
 
-            for k in range(nkpts):
-                temp_SqG_k = 0
+            region_t0 = profile.start()
+            u2 = uKpts2[idx_kpt2s] * exp_terms[:, None, :]
+            profile.stop("pair-density orbital setup", region_t0)
 
-                region_t0 = profile.start()
-                conj_u1 = np.conj(uKpts1[k, :, :])
-                u2 = uKpts2[idx_kpt2s[k]] * exp_terms[k][None, :]
-                profile.stop("pair-density orbital setup", region_t0)
+            region_t0 = profile.start()
+            rho12 = conj_uKpts1 @ u2.transpose(0, 2, 1)
+            profile.stop("pair-density matrix multiply", region_t0)
 
-                region_t0 = profile.start()
-                rho12 = conj_u1 @ u2.T
-                profile.stop("pair-density matrix multiply", region_t0)
-
-                region_t0 = profile.start()
-                rho12 = np.abs(rho12) ** 2
-                temp_SqG_k = np.sum(rho12) * dvol**2
-
-                SqG_full[qG] += temp_SqG_k / nkpts
-                profile.stop("pair-density square/reduction", region_t0)
+            region_t0 = profile.start()
+            rho12 = np.abs(rho12) ** 2
+            SqG_full[qG] = np.sum(rho12) * dvol**2 / nkpts
+            profile.stop("pair-density square/reduction", region_t0)
 
         profile.stop("main qG loop (inclusive)", loop_t0)
         log.note("Number of equivalent qG points: %d", num_equiv_qG)
