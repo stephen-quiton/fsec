@@ -51,6 +51,7 @@ class ExxSS(SingularitySubtraction):
                 kmf.cell.mesh.
             sq_ke_cutoff (float or None): kecutoff to control real space grid for the structure factor calculation. 
             sq_inversion_symm (bool): Whether to enforce inversion symmetry in the structure factor. Default is True.
+            line_sampling (bool): Whether to sample q+G along reciprocal-lattice directions only. Default is False.
         """
 
 
@@ -88,6 +89,7 @@ class ExxSS(SingularitySubtraction):
         self.N_local = kwargs.get('N_local', kmf.cell.mesh) # Array (3), controls real space grid for structure factor
         self.sq_ke_cutoff = kwargs.get('sq_ke_cutoff', None) 
         self.sq_inversion_symm = kwargs.get('sq_inversion_symm', True)
+        self.line_sampling = kwargs.get('line_sampling', False)
 
         if self.sq_ke_cutoff is not None:
             print("sq_ke_cutoff provided to ExxSS, overriding N_local")
@@ -114,7 +116,11 @@ class ExxSS(SingularitySubtraction):
         self.structure_factor = ExxStructureFactor(self.kmf, self.N_local,self.sq_ke_cutoff,
                                                             self.qG_norm_cutoff,
                                                             min_points=self.min_points,
-                                                            sq_inversion_symm=self.sq_inversion_symm)
+                                                            sq_inversion_symm=self.sq_inversion_symm,
+                                                            line_sampling=(
+                                                                self.line_sampling
+                                                                and self.qG_norm_cutoff is not None
+                                                            ))
 
         self.SqG = self.structure_factor.build_structure_factor()
 

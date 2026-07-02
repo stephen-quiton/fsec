@@ -87,6 +87,22 @@ class KnownValues(unittest.TestCase):
         for actual, reference in zip(SqG_10, reference_SqG_10):
             self.assertAlmostEqual(actual, reference, places=8)
 
+    def test_build_structure_factor_with_line_sampling(self):
+        exx_sf = ExxStructureFactor(
+            self.kmf,
+            N_local=self.N_local,
+            qG_cutoff=4.0,
+            line_sampling=True,
+        )
+        SqG = exx_sf.build_structure_factor()
+        qG = exx_sf.grids.qG_grid_truncated
+        expected_qG = exx_sf.grids.build_qG_line_sampling()
+
+        self.assertTrue(exx_sf.line_sampling)
+        self.assertEqual(len(SqG), len(qG))
+        self.assertTrue(np.all(np.isfinite(SqG)))
+        np.testing.assert_allclose(qG, expected_qG)
+
 
 if __name__ == "__main__":
     unittest.main()

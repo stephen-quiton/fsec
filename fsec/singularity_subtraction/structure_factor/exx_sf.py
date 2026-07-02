@@ -24,6 +24,7 @@ class ExxStructureFactor(StructureFactor):
         self.kGrid2 = kwargs.get("kGrid2", None)
         self.relative_shift = relative_shift
         self.min_points = kwargs.get("min_points", 6)
+        self.line_sampling = kwargs.get("line_sampling", False)
 
         self.debug_options = kwargs.get("debug_options", {})
         super().__init__(self.kmf.cell, N_local, sq_ke_cutoff, qG_cutoff, **kwargs)
@@ -40,6 +41,14 @@ class ExxStructureFactor(StructureFactor):
         self.grids.build_grids()
         if self.qG_cutoff is None:
             self.grids.build_truncated_qG_grid()
+        if self.line_sampling:
+            qG_line = self.grids.build_qG_line_sampling()
+            if len(qG_line) < self.min_points:
+                raise ValueError(
+                    f"Line sampling produced {len(qG_line)} q+G points; "
+                    f"increase qG_cutoff to provide at least {self.min_points}."
+                )
+            self.grids.qG_grid_truncated = qG_line
 
     def build_structure_factor(self, verbose=None):
         kmf = self.kmf
