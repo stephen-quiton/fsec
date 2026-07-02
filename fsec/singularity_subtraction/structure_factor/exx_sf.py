@@ -79,6 +79,7 @@ class ExxStructureFactor(StructureFactor):
         profile.stop("structure-factor setup", phase_t0)
 
         num_equiv_qG = 0
+        kgrid2_tree = scipy.spatial.KDTree(kGrid2)
 
         loop_t0 = profile.start()
         for qG in range(qG_full.shape[0]):
@@ -95,25 +96,23 @@ class ExxStructureFactor(StructureFactor):
                     continue
             profile.stop("inversion-symmetry lookup", region_t0)
 
+            region_t0 = profile.start()
+            kpt2s = kGrid1 + qGpt
+            kpt2s_BZ = minimum_image(kmf.cell, kpt2s)
+            _, idx_kpt2s = kgrid2_tree.query(kpt2s_BZ, distance_upper_bound=np.sqrt(1e-8))
+            if np.any(idx_kpt2s == kgrid2_tree.n):
+                raise TypeError("Cannot locate (k+q) in the kmesh.")
+            kGdiffs = kpt2s - kpt2s_BZ
+            exp_terms = np.exp(-1j * (rptGrid3D @ kGdiffs.T)).T
+            profile.stop("per-qG index/phase setup", region_t0)
+
             for k in range(nkpts):
-                region_t0 = profile.start()
                 temp_SqG_k = 0
-                kpt1 = kGrid1[k, :]
-                kpt2 = kpt1 + qGpt
-
-                kpt2_BZ = minimum_image(kmf.cell, kpt2)
-                idx_kpt2 = np.where(np.sum((kGrid2 - kpt2_BZ[None, :]) ** 2, axis=1) < 1e-8)[0]
-                if len(idx_kpt2) != 1:
-                    raise TypeError("Cannot locate (k+q) in the kmesh.")
-                idx_kpt2 = idx_kpt2[0]
-                kGdiff = kpt2 - kpt2_BZ
-                profile.stop("k-point lookup", region_t0)
 
                 region_t0 = profile.start()
-                exp_term = np.exp(-1j * (rptGrid3D @ kGdiff))
                 conj_u1 = np.conj(uKpts1[k, :, :])
-                u2 = uKpts2[idx_kpt2] * exp_term[None, :]
-                profile.stop("pair-density phase/orbital setup", region_t0)
+                u2 = uKpts2[idx_kpt2s[k]] * exp_terms[k][None, :]
+                profile.stop("pair-density orbital setup", region_t0)
 
                 region_t0 = profile.start()
                 rho12 = conj_u1 @ u2.T
