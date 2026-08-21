@@ -72,6 +72,109 @@ class XNGauss(XNGeneral):
         return self.sign * prefactor * self.c0 * integral
 
 
+class X4GeneralAnisotropic(ModelFunction):
+    r"""Anisotropic quartic model with a radial decay function.
+
+    The model is
+
+    .. math:: f(\mathbf{r}) = \operatorname{sign}
+        (\mathbf{r}^{T} S \mathbf{r})^{2} h(|\mathbf{r}|),
+
+    where ``S = diag(sx, sy, sz)`` and the model parameters are
+    ``[sx, sy, sz]``.  ``deg`` is accepted for compatibility with the q4
+    model factory, which passes it to all q4 models.
+    """
+
+    def __init__(self, parameters=None, deg=4, is_contraction=False, negative=True):
+        if deg != 4:
+            raise ValueError("X4GeneralAnisotropic requires deg=4")
+        self.deg = deg
+        self.sign = -1 if negative else 1
+        super().__init__(parameters=parameters, is_contraction=is_contraction)
+        self.set_parameters(self.parameters)
+
+    def decay_func(self, r: np.ndarray):
+        """Return the radial decay function ``h(r)``."""
+        raise NotImplementedError
+
+    def eval_model(self, coords: np.ndarray):
+        coords = np.asarray(coords)
+        if coords.ndim != 2 or coords.shape[1] != 3:
+            raise ValueError("coords must be an (N,3) array: [q_x, q_y, q_z]")
+
+        r = np.linalg.norm(coords, axis=1)
+        quadratic_form = (
+            self.sx * coords[:, 0] ** 2
+            + self.sy * coords[:, 1] ** 2
+            + self.sz * coords[:, 2] ** 2
+        )
+        return self.sign * quadratic_form**2 * self.decay_func(r)
+
+    def coulomb_integral(self, coul_deg=4):
+        """Compute the generalized Coulomb integral by radial quadrature."""
+
+        def integrand(r):
+            return r ** (6 - coul_deg) * self.decay_func(r)
+
+        integral, abserror = quad(integrand, 0, np.inf)
+        trace_s = self.sx + self.sy + self.sz
+        trace_s_squared = self.sx**2 + self.sy**2 + self.sz**2
+        angular_factor = 4 * np.pi / 15 * (trace_s**2 + 2 * trace_s_squared)
+        print("Computed integral with scipy.integrate.quad. Estimated error: ", abserror)
+        return self.sign * angular_factor * integral
+
+    def default_parameters(self):
+        return [1.0, 1.0, 1.0]
+
+    def set_parameters(self, parameters):
+        if parameters is None:
+            parameters = self.default_parameters()
+        parameters = np.asarray(parameters, dtype=float)
+        if parameters.shape != (3,):
+            raise ValueError("parameters must be [sx, sy, sz]")
+
+        self.parameters = parameters
+        self.sx, self.sy, self.sz = parameters
+        self.S = np.diag(parameters)
+        self.num_params = 3
+
+
+class X4GaussAnisotropic(X4GeneralAnisotropic):
+    """Anisotropic quartic Gaussian with parameters ``[sx, sy, sz, sigma]``."""
+
+    def decay_func(self, r: np.ndarray):
+        if np.isclose(self.sigma, 0):
+            return np.zeros_like(r, dtype=float)
+        return np.exp(-r**2 / (2.0 * self.sigma * self.sigma))
+
+    def default_parameters(self):
+        return [1.0, 1.0, 1.0, 1.0]
+
+    def set_parameters(self, parameters):
+        if parameters is None:
+            parameters = self.default_parameters()
+        parameters = np.asarray(parameters, dtype=float)
+        if parameters.shape != (4,):
+            raise ValueError("parameters must be [sx, sy, sz, sigma]")
+
+        self.parameters = parameters
+        self.sx, self.sy, self.sz, self.sigma = parameters
+        self.S = np.diag(parameters[:3])
+        self.num_params = 4
+
+    def coulomb_integral(self, coul_deg=4):
+        if np.isclose(self.sigma, 0):
+            return 0.0
+        if coul_deg != 4:
+            return super().coulomb_integral(coul_deg=coul_deg)
+
+        a = 1 / (2.0 * self.sigma**2)
+        trace_s = self.sx + self.sy + self.sz
+        trace_s_squared = self.sx**2 + self.sy**2 + self.sz**2
+        trace_factor = trace_s**2 + 2 * trace_s_squared
+        return self.sign * np.pi**(3 / 2) / (15 * a**(3 / 2)) * trace_factor
+
+
 class XNExpAbs(XNGeneral):
     def __init__(self, parameters=None, deg=2, is_contraction=False, negative=True):
         self.c0 = parameters[0]

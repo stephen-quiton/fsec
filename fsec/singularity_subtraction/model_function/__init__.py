@@ -91,6 +91,8 @@ from fsec.singularity_subtraction.model_function.mp2_direct_modfunc import (
     XNExpAbsStackedSingularity,
     XNExpAbsStackedSingularityQMesh,
     XNExponential,
+    X4GaussAnisotropic,
+    X4GeneralAnisotropic,
     XNGauss,
     XNGaussStackedSingularity,
     XNGaussStackedSingularityQMesh,
@@ -102,6 +104,7 @@ from fsec.singularity_subtraction.model_function.mp2_exchange_modfunc import (
     XNExpAbs2StackedSingularityExchange,
     XNExpAbsStackedSingularityExchange,
     XNExponentialStackedSingularityExchange,
+    XNGaussAnisotropicStackedSingularityExchange,
     XNGaussStackedSingularityExchange,
     XNQuarticExponentialStackedSingularityExchange,
 )

@@ -80,13 +80,14 @@ class MP2SSOptions:
         Model used for the fourth-order direct contribution when
         ``correct_q2_q4_separately`` is enabled. A false-like value falls back
         to ``auxfunc_direct``. Supported values are ``"Gauss"``,
+        ``"GaussAnisotropic"``,
         ``"Exponential"``, ``"QuarticExponential"``, ``"ExpAbs"``, and
         ``"ExpAbs2"``. NOTE: Ignored when correct_q2_q4_separately is disabled,
         in which case auxfunc_direct is used instead.
     auxfunc_exchange
         Model used when fitting the exchange contribution. Supported values
-        are ``"Gauss"``, ``"Exponential"``, ``"QuarticExponential"``,
-        ``"ExpAbs"``, and ``"ExpAbs2"``.
+        are ``"Gauss"``, ``"GaussAnisotropic"``, ``"Exponential"``,
+        ``"QuarticExponential"``, ``"ExpAbs"``, and ``"ExpAbs2"``.
     fit_with_coul
         Include the Coulomb kernel in fits of the complete direct and exchange
         contributions. Ignored for direct if ``correct_q2_q4_separately`` is
@@ -406,6 +407,11 @@ Q4_MODEL_SPECS = {
         'initial_params': np.array([1e-4, 1.0]),
         'fit_multipliers': [1e4, 1.0],
     },
+    'GaussAnisotropic': {
+        'cls_name': 'X4GaussAnisotropic',
+        'initial_params': np.array([1e-2, 1e-2, 1e-2, 1.0]),
+        'fit_multipliers': [1e2, 1e2, 1e2, 1.0],
+    },
     'Exponential': {
         'cls_name': 'XNExponential',
         'initial_params': np.array([1e-4, 1.0, 1.0]),
@@ -456,6 +462,11 @@ EXCHANGE_MODEL_SPECS = {
         'cls_name': 'XNGaussStackedSingularityExchange',
         'initial_params': np.array([1e-4, 1.0]),
     },
+    'GaussAnisotropic': {
+        'cls_name': 'XNGaussAnisotropicStackedSingularityExchange',
+        'initial_params': np.array([1e-2, 1e-2, 1e-2, 1.0]),
+        'fit_multipliers': [1e2, 1e2, 1e2, 1.0],
+    },
     'ExpAbs': {
         'cls_name': 'XNExpAbsStackedSingularityExchange',
         'initial_params': np.array([1e-4, 1.0]),
@@ -487,7 +498,6 @@ class MP2DirectFourthOrderSS(SingularitySubtraction):
         Lvec_recip = config.cell.reciprocal_vectors()
         numKpt3D = np.prod(nks)
         omega_star = abs(np.linalg.det(Lvec_recip))
-        plot_prefactor = numKpt3D / omega_star
 
         if config.fit_method is None or config.fit_method == 'Disabled':
             return None
@@ -534,8 +544,7 @@ class MP2DirectFourthOrderSS(SingularitySubtraction):
             )
 
         f_q4.set_parameters(fitted_params_q4)
-        print("Unnormalized q4 c4_value: ", f_q4.c0)
-        print("Normalized q4 c4_value: ", f_q4.c0 * plot_prefactor)
+        print("q4 auxiliary function parameters: ", f_q4.parameters)
 
 
         return f_q4, qGlocal_grid_correction, numKpt3D, omega_star

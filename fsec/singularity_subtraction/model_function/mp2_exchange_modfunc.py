@@ -103,6 +103,81 @@ class XNGaussStackedSingularityExchange(MP2StackedSingularityExchange):
         return c0 * (2 * sigma**2 * np.pi) ** 3
 
 
+class XNGaussAnisotropicStackedSingularityExchange(MP2StackedSingularityExchange):
+    r"""Anisotropic Gaussian exchange model.
+
+    The parameters are ``[sx, sy, sz, sigma]`` and define the quadratic form
+    ``q.T @ diag(sx, sy, sz) @ q`` with an isotropic Gaussian decay.
+    """
+
+    def __init__(self, parameters=None, q2s=None, dvol=None):
+        # Delay attaching q2s until the anisotropic parameters exist because
+        # the base class computes the cached q2 quadrature immediately.
+        super().__init__(parameters=parameters, q2s=None, dvol=dvol)
+        self.set_parameters(self.parameters)
+        if q2s is not None:
+            self.set_q2s(q2s)
+
+    @staticmethod
+    def _quadratic_form(coords, diagonal):
+        return np.sum(coords**2 * diagonal, axis=1)
+
+    def default_parameters(self):
+        return [1.0, 1.0, 1.0, 1.0]
+
+    def set_parameters(self, parameters):
+        parameters = np.asarray(parameters, dtype=float)
+        self.parameters = parameters
+        self.sx, self.sy, self.sz, self.sigma = parameters
+        self.S = np.diag(parameters[:3])
+        self.num_params = 4
+        if self.q2s is not None:
+            self.compute_uncorrected_q2_quad()
+
+    def decay_func_r(self, r: np.ndarray):
+        if np.isclose(self.sigma, 0):
+            return np.zeros_like(r, dtype=float)
+        return np.exp(-r**2 / (2 * self.sigma**2))
+
+    def compute_uncorrected_q2_quad(self):
+        squared_norm_q2s = np.sum(self.q2s**2, axis=1)
+        squared_norm_q2s[squared_norm_q2s < 1e-8] = np.inf
+        quadratic_form = self._quadratic_form(self.q2s, self.parameters[:3])
+        angular_weight = quadratic_form / squared_norm_q2s
+        self.uncorrected_q2_quad = self.dvol * np.sum(
+            angular_weight * self.decay_func_r(np.sqrt(squared_norm_q2s))
+        )
+        return self.uncorrected_q2_quad
+
+    def eval_model(self, coords: np.ndarray):
+        coords = np.asarray(coords)
+        if coords.ndim != 2 or coords.shape[1] != 3:
+            raise ValueError("coords must be an (N,3) array: [q_x, q_y, q_z]")
+        if self.q2s is None:
+            raise ValueError(
+                "q2s must be set on XNGaussAnisotropicStackedSingularityExchange "
+                "before evaluation"
+            )
+        if self.dvol is None:
+            raise ValueError(
+                "dvol must be set on XNGaussAnisotropicStackedSingularityExchange "
+                "before evaluation"
+            )
+
+        quadratic_form = self._quadratic_form(coords, self.parameters[:3])
+        return (
+            quadratic_form
+            * self.decay_func_r(np.linalg.norm(coords, axis=1))
+            * self.uncorrected_q2_quad
+        )
+
+    def coulomb_integral(self):
+        if np.isclose(self.sigma, 0):
+            return 0.0
+        mean_s = (self.sx + self.sy + self.sz) / 3
+        return (2 * np.pi * self.sigma**2) ** 3 * mean_s**2
+
+
 class XNExponentialStackedSingularityExchange(MP2StackedSingularityExchange):
     def __init__(self, parameters=None, q2s=None, dvol=None):
         self.c0 = parameters[0]
